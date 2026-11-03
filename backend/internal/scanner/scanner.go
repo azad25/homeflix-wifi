@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"homeflix-backend/internal/services/governor"
 	"log"
 	"math/rand"
 	"os"
@@ -29,20 +30,20 @@ import (
 )
 
 type MediaScanner struct {
-	mediaPath             string   // Primary media path (for backward compatibility)
-	mediaPaths            []string // All media paths to scan
-	mediaService          interfaces.MediaServiceInterface
-	thumbnailService      interfaces.ThumbnailServiceInterface
-	posterService         interfaces.PosterServiceInterface
-	geminiService         interfaces.GeminiServiceInterface
-	celeryService         interfaces.CeleryServiceInterface
-	alacService           interfaces.ALACAudioServiceInterface
-	tmdbService           interfaces.TMDBServiceInterface
-	recommendationService interfaces.RecommendationServiceInterface
-	notificationService   interfaces.NotificationServiceInterface
-	openSubtitlesService  *services.OpenSubtitlesService
+	mediaPath              string   // Primary media path (for backward compatibility)
+	mediaPaths             []string // All media paths to scan
+	mediaService           interfaces.MediaServiceInterface
+	thumbnailService       interfaces.ThumbnailServiceInterface
+	posterService          interfaces.PosterServiceInterface
+	geminiService          interfaces.GeminiServiceInterface
+	celeryService          interfaces.CeleryServiceInterface
+	alacService            interfaces.ALACAudioServiceInterface
+	tmdbService            interfaces.TMDBServiceInterface
+	recommendationService  interfaces.RecommendationServiceInterface
+	notificationService    interfaces.NotificationServiceInterface
+	openSubtitlesService   *services.OpenSubtitlesService
 	subtitleMatcherService *services.SubtitleMatcherService
-	streamProfileService  *services.StreamProfileService
+	streamProfileService   *services.StreamProfileService
 
 	// Scan statistics
 	startTime      time.Time
@@ -112,7 +113,6 @@ type FileMetadata struct {
 	Genres      []string
 }
 
-
 // FileInfo conversion not needed - using single type
 
 func NewMediaScanner(mediaPath string, mediaService interfaces.MediaServiceInterface, thumbnailService interfaces.ThumbnailServiceInterface, posterService interfaces.PosterServiceInterface, geminiService interfaces.GeminiServiceInterface, celeryService interfaces.CeleryServiceInterface, alacService interfaces.ALACAudioServiceInterface, tmdbService interfaces.TMDBServiceInterface, recommendationService interfaces.RecommendationServiceInterface, notificationService interfaces.NotificationServiceInterface, openSubtitlesService *services.OpenSubtitlesService) *MediaScanner {
@@ -124,30 +124,30 @@ func NewMediaScanner(mediaPath string, mediaService interfaces.MediaServiceInter
 			subtitleMatcherService = services.NewSubtitleMatcherService(openSubtitlesService, concreteMediaService)
 		}
 	}
-	
+
 	return &MediaScanner{
-		mediaPath:             mediaPath,
-		mediaPaths:            []string{mediaPath}, // Initialize with primary path
-		mediaService:          mediaService,
-		thumbnailService:      thumbnailService,
-		posterService:         posterService,
-		geminiService:         geminiService,
-		celeryService:         celeryService,
-		alacService:           alacService,
-		tmdbService:           tmdbService,
-		recommendationService: recommendationService,
-		notificationService:   notificationService,
-		openSubtitlesService:  openSubtitlesService,
+		mediaPath:              mediaPath,
+		mediaPaths:             []string{mediaPath}, // Initialize with primary path
+		mediaService:           mediaService,
+		thumbnailService:       thumbnailService,
+		posterService:          posterService,
+		geminiService:          geminiService,
+		celeryService:          celeryService,
+		alacService:            alacService,
+		tmdbService:            tmdbService,
+		recommendationService:  recommendationService,
+		notificationService:    notificationService,
+		openSubtitlesService:   openSubtitlesService,
 		subtitleMatcherService: subtitleMatcherService,
-		maxGoroutines:         8, // Reduced for i5-4590 stability
-		maxWorkers:            1, // Single worker to prevent crashes
-		batchSize:             5, // Smaller batches for stability
-		progressStop:          make(chan bool),
-		metadataCache:         make(map[string]*models.Media),
-		scanCache:             make(map[string]time.Time),
-		priorityQueue:         make(chan FileInfo, 100),
-		lowPriorityQueue:      make(chan FileInfo, 500),
-		skipPatterns:          []string{"$RECYCLE.BIN", ".DS_Store", "Thumbs.db"},
+		maxGoroutines:          8, // Reduced for i5-4590 stability
+		maxWorkers:             1, // Single worker to prevent crashes
+		batchSize:              5, // Smaller batches for stability
+		progressStop:           make(chan bool),
+		metadataCache:          make(map[string]*models.Media),
+		scanCache:              make(map[string]time.Time),
+		priorityQueue:          make(chan FileInfo, 100),
+		lowPriorityQueue:       make(chan FileInfo, 500),
+		skipPatterns:           []string{"$RECYCLE.BIN", ".DS_Store", "Thumbs.db"},
 	}
 }
 
@@ -828,13 +828,13 @@ func (s *MediaScanner) regeneratePreviewClipsForMissingOnlyImpl() error {
 // ScanSubtitles scans the media storage for subtitle files and matches them to media
 func (s *MediaScanner) ScanSubtitles() (*SubtitleScanResult, error) {
 	log.Printf("📝 Starting subtitle scan for media storage...")
-	
+
 	result := &SubtitleScanResult{
 		TotalSubtitles:     0,
 		MatchedSubtitles:   0,
 		UnmatchedSubtitles: 0,
 		ProcessedFiles:     []string{},
-		Errors:            []string{},
+		Errors:             []string{},
 	}
 
 	// Get all media from database for matching
@@ -853,7 +853,7 @@ func (s *MediaScanner) ScanSubtitles() (*SubtitleScanResult, error) {
 		baseName := strings.TrimSuffix(filepath.Base(media.FilePath), filepath.Ext(media.FilePath))
 		key := filepath.Join(dir, baseName)
 		mediaMap[key] = media
-		
+
 		// Also add cleaned title variants for better matching
 		if s.GetTMDBService() != nil {
 			cleanedTitle := s.GetTMDBService().CleanTitle(media.Title)
@@ -908,7 +908,7 @@ func (s *MediaScanner) ScanSubtitles() (*SubtitleScanResult, error) {
 		return result, fmt.Errorf("error walking media directory: %v", err)
 	}
 
-	log.Printf("📝 Subtitle scan completed: %d total, %d matched, %d unmatched", 
+	log.Printf("📝 Subtitle scan completed: %d total, %d matched, %d unmatched",
 		result.TotalSubtitles, result.MatchedSubtitles, result.UnmatchedSubtitles)
 
 	return result, nil
@@ -920,7 +920,7 @@ type SubtitleScanResult struct {
 	MatchedSubtitles   int      `json:"matchedSubtitles"`
 	UnmatchedSubtitles int      `json:"unmatchedSubtitles"`
 	ProcessedFiles     []string `json:"processedFiles"`
-	Errors            []string `json:"errors"`
+	Errors             []string `json:"errors"`
 }
 
 // findMediaForSubtitle finds the matching media for a subtitle file using advanced TMDB title cleaning
@@ -1098,7 +1098,7 @@ func (s *MediaScanner) findBestTitleMatch(cleanedSubtitleTitle, subtitleDir stri
 
 	var bestMatch *models.Media
 	var bestScore float64 = 0
-	
+
 	// Normalize subtitle title for comparison
 	normalizedSubTitle := strings.ToLower(strings.TrimSpace(cleanedSubtitleTitle))
 
@@ -1117,10 +1117,10 @@ func (s *MediaScanner) findBestTitleMatch(cleanedSubtitleTitle, subtitleDir stri
 		}
 
 		normalizedMediaTitle := strings.ToLower(strings.TrimSpace(cleanedMediaTitle))
-		
+
 		// Calculate similarity score
 		score := s.calculateTitleSimilarity(normalizedSubTitle, normalizedMediaTitle)
-		
+
 		// Boost score if in same directory
 		mediaDir := filepath.Dir(media.FilePath)
 		if mediaDir == subtitleDir {
@@ -1211,7 +1211,7 @@ func (s *MediaScanner) areDirectoriesRelated(dir1, dir2 string) bool {
 func (s *MediaScanner) processSubtitleForMedia(subtitlePath string, media models.Media) error {
 	// Extract language from filename
 	language := s.extractLanguageFromSubtitle(subtitlePath)
-	
+
 	// Get subtitle format
 	format := strings.TrimPrefix(filepath.Ext(subtitlePath), ".")
 
@@ -1317,10 +1317,10 @@ func (s *MediaScanner) fetchAndUpdateEpisodeMetadata(media *models.Media, tvID i
 	if episode.StillPath != "" {
 		stillDir := "./episode_stills"
 		stillPath, err := s.GetTMDBService().DownloadEpisodeStill(
-			episode.StillPath, 
-			tvID, 
-			seasonNumber, 
-			episodeNumber, 
+			episode.StillPath,
+			tvID,
+			seasonNumber,
+			episodeNumber,
 			stillDir,
 		)
 		if err != nil {
@@ -1446,7 +1446,7 @@ func (s *MediaScanner) autoFetchAndUpdateSeriesMetadata(series *models.Series, y
 // ProcessSubtitleFile processes a single subtitle file (implements SubtitleProcessor interface)
 func (s *MediaScanner) ProcessSubtitleFile(path string, info os.FileInfo) error {
 	log.Printf("📝 Processing subtitle file: %s", filepath.Base(path))
-	
+
 	// Get all media from database for matching
 	allMedia, err := s.getAllMediaFromDatabase()
 	if err != nil {
@@ -1492,21 +1492,21 @@ func (s *MediaScanner) scanMediaLibraryImpl() error {
 // EnsureCompleteSyncOnStartup performs comprehensive sync validation on server startup
 func (s *MediaScanner) EnsureCompleteSyncOnStartup() error {
 	log.Printf("🚀 Starting comprehensive media sync validation on server startup...")
-	
+
 	// Create progress tracker for startup sync
 	progress := NewProgressTracker()
 	progress.Start()
 	defer progress.Stop()
-	
+
 	// Perform comprehensive validation
 	if err := s.validateCompleteSyncWithProgress(progress); err != nil {
 		log.Printf("❌ Startup sync validation failed: %v", err)
 		return fmt.Errorf("startup sync validation failed: %v", err)
 	}
-	
+
 	// Poster checking disabled for faster startup - file watcher will handle new media posters
 	progress.LogWithProgress("ℹ️ Poster checking disabled for faster startup - file watcher will handle new media posters")
-	
+
 	log.Printf("✅ Startup media sync validation completed successfully")
 	return nil
 }
@@ -1572,13 +1572,13 @@ func (s *MediaScanner) ensureAllPostersOnStartup(progress *ProgressTracker) erro
 		batchNum := (i / batchSize) + 1
 		totalBatches := (len(mediaNeedingPosters) + batchSize - 1) / batchSize
 
-		progress.UpdateOperation(fmt.Sprintf("Downloading poster batch %d/%d (%d-%d of %d)", 
+		progress.UpdateOperation(fmt.Sprintf("Downloading poster batch %d/%d (%d-%d of %d)",
 			batchNum, totalBatches, i+1, end, len(mediaNeedingPosters)))
 
 		// Process batch sequentially to respect API rate limits
 		for _, media := range batch {
 			progress.UpdateOperation(fmt.Sprintf("Downloading poster for: %s", media.Title))
-			
+
 			if posterPath, err := s.GetPosterService().DownloadPosterWithPath(media.Title, media.ID); err != nil {
 				log.Printf("❌ Failed to download poster for %s: %v", media.Title, err)
 				failed++
@@ -1604,7 +1604,7 @@ func (s *MediaScanner) ensureAllPostersOnStartup(progress *ProgressTracker) erro
 		}
 	}
 
-	progress.LogWithProgress(fmt.Sprintf("✅ Poster download completed: %d successful, %d failed out of %d total", 
+	progress.LogWithProgress(fmt.Sprintf("✅ Poster download completed: %d successful, %d failed out of %d total",
 		successful, failed, len(mediaNeedingPosters)))
 
 	return nil
@@ -1658,47 +1658,47 @@ func (s *MediaScanner) discoverFiles() ([]FileInfo, error) {
 				return nil
 			}
 
-		// Skip files matching skip patterns
-		fileName := filepath.Base(path)
-		for _, pattern := range s.GetSkipPatterns() {
-			if matched, _ := filepath.Match(pattern, fileName); matched {
+			// Skip files matching skip patterns
+			fileName := filepath.Base(path)
+			for _, pattern := range s.GetSkipPatterns() {
+				if matched, _ := filepath.Match(pattern, fileName); matched {
+					return nil
+				}
+			}
+
+			// Skip files that are too large (>100GB) to prevent memory issues
+			if info.Size() > 100*1024*1024*1024 {
+				log.Printf("⚠️ Skipping oversized file: %s (%d bytes)", path, info.Size())
 				return nil
 			}
-		}
 
-		// Skip files that are too large (>100GB) to prevent memory issues
-		if info.Size() > 100*1024*1024*1024 {
-			log.Printf("⚠️ Skipping oversized file: %s (%d bytes)", path, info.Size())
+			// Ultra-fast file type detection using extension first
+			ext := strings.ToLower(filepath.Ext(path))
+			isVideo := s.isVideoFileByExtension(ext)
+			isSubtitle := s.isSubtitleFileByExtension(ext)
+
+			if isVideo || isSubtitle {
+				fileInfo := FileInfo{
+					Path:       path,
+					Info:       info,
+					IsVideo:    isVideo,
+					IsSubtitle: isSubtitle,
+				}
+
+				// Use non-blocking send to prevent deadlocks
+				select {
+				case fileChan <- fileInfo:
+				default:
+					// Channel full, add directly with mutex
+					mu.Lock()
+					files = append(files, fileInfo)
+					mu.Unlock()
+				}
+			}
+
 			return nil
-		}
-
-		// Ultra-fast file type detection using extension first
-		ext := strings.ToLower(filepath.Ext(path))
-		isVideo := s.isVideoFileByExtension(ext)
-		isSubtitle := s.isSubtitleFileByExtension(ext)
-
-		if isVideo || isSubtitle {
-			fileInfo := FileInfo{
-				Path:       path,
-				Info:       info,
-				IsVideo:    isVideo,
-				IsSubtitle: isSubtitle,
-			}
-
-			// Use non-blocking send to prevent deadlocks
-			select {
-			case fileChan <- fileInfo:
-			default:
-				// Channel full, add directly with mutex
-				mu.Lock()
-				files = append(files, fileInfo)
-				mu.Unlock()
-			}
-		}
-
-		return nil
 		})
-		
+
 		if err != nil {
 			log.Printf("⚠️ Error scanning media path %s: %v", mediaPath, err)
 			walkErr = err // Store the last error, but continue with other paths
@@ -2289,7 +2289,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 				} else {
 					media.Title = s.cleanTitle(filepath.Base(path))
 				}
-				
+
 				// Final fallback if still empty
 				if media.Title == "" {
 					media.Title = strings.TrimSuffix(filepath.Base(path), filepath.Ext(filepath.Base(path)))
@@ -2366,7 +2366,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		if media.SeriesID != nil && *media.SeriesID > 0 {
 			// Episode already has a series assigned - preserve it
 			log.Printf("🛡️ Preserving existing series assignment for episode: %s (SeriesID: %d)", media.Title, *media.SeriesID)
-			
+
 			// Still update season/episode numbers from metadata if they changed
 			if metadata.Season > 0 && (media.Season == nil || *media.Season != metadata.Season) {
 				media.Season = &metadata.Season
@@ -2513,7 +2513,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	// This ensures tracks are available immediately after media is saved
 	log.Printf("🎬 Processing tracks for: %s", media.Title)
 	s.extractSubtitleAndAudioTracks(media, path)
-	
+
 	// Also process tracks using the new method for enhanced track detection
 	if err := s.processMediaTracks(media); err != nil {
 		log.Printf("⚠️ Failed to process media tracks for %s: %v", media.Title, err)
@@ -2653,7 +2653,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 							if tmdbMetadata.PosterURL != "" {
 								// Download poster from TMDB
 								log.Printf("🎨 TMDB poster URL for %s: %s", media.Title, tmdbMetadata.PosterURL)
-								
+
 								// Download poster from TMDB
 								if s.GetPosterService() != nil {
 									log.Printf("📥 Downloading poster for %s", media.Title)
@@ -2670,7 +2670,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 								media.TMDBTrailerURL = tmdbMetadata.TrailerURL
 								log.Printf("🎬 Set TMDB trailer URL for %s: %s", media.Title, tmdbMetadata.TrailerURL)
 							}
-							
+
 							// Store TMDB ID for future reference (logo download happens after media is saved)
 							if tmdbMetadata.TMDBID > 0 {
 								media.TMDBID = tmdbMetadata.TMDBID
@@ -2682,7 +2682,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 								// Store genre names for JSON compatibility and API responses
 								media.GenreNames = tmdbMetadata.Genres
 								log.Printf("🎭 Set genres for %s: %v", media.Title, tmdbMetadata.Genres)
-								
+
 								// Convert genre names to IDs and assign to media
 								genreIDs, err := s.GetMediaService().GetGenreIDsByNames(tmdbMetadata.Genres)
 								if err != nil {
@@ -2729,7 +2729,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 						log.Printf("✅ Downloaded logo for: %s", media.Title)
 					}
 				}
-				
+
 				// Download backdrop if not already present
 				if media.BackdropPath == "" && s.GetTMDBService() != nil {
 					log.Printf("🖼️ Downloading backdrop for %s (Media ID: %d)", media.Title, media.ID)
@@ -2749,7 +2749,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 						log.Printf("✅ Downloaded backdrop for: %s, set tmdb_backdrop_url to local endpoint", media.Title)
 					}
 				}
-				
+
 				// Save logo and backdrop paths to database
 				if media.LogoPath != "" || media.BackdropPath != "" {
 					if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
@@ -2758,20 +2758,20 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 						log.Printf("✅ Saved asset paths for: %s", media.Title)
 					}
 				}
-				
+
 				// Send notification for newly added movies
 				if isNewMovie && s.notificationService != nil && media.ID != 0 {
 					// Capture the media ID for the goroutine
 					movieID := media.ID
 					movieTitle := media.Title
-					
+
 					go func() {
 						defer func() {
 							if r := recover(); r != nil {
 								log.Printf("🚨 Recovered from panic sending new movie notification: %v", r)
 							}
 						}()
-						
+
 						// Send notification about this new movie
 						if err := s.notificationService.CreateNewMoviesNotification([]uint{movieID}, 1); err != nil {
 							log.Printf("⚠️ Failed to send new movie notification: %v", err)
@@ -2882,18 +2882,18 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 	if err != nil {
 		return err
 	}
-	
+
 	// If this is new media and poster service is available, download poster
 	if isNewMedia && s.GetPosterService() != nil {
 		log.Printf("🎨 New media detected by file watcher, downloading poster and logo for: %s", filepath.Base(path))
-		
+
 		// Get the media from database to get the ID and title
 		media, err := s.GetMediaService().GetMediaByPath(path)
 		if err != nil {
 			log.Printf("⚠️ Failed to get media from database for poster download: %v", err)
 			return nil // Don't fail the entire process for poster issues
 		}
-		
+
 		if media != nil {
 			// Download poster and logo in a separate goroutine to avoid blocking
 			go func() {
@@ -2902,10 +2902,10 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 						log.Printf("🚨 Recovered from panic in poster/logo download for %s: %v", media.Title, r)
 					}
 				}()
-				
+
 				// Wait longer to ensure TMDB metadata is fully saved (happens in background goroutine)
 				time.Sleep(4 * time.Second)
-				
+
 				// Refresh media from database to get latest data including TMDB ID
 				refreshedMedia, refreshErr := s.GetMediaService().GetMediaByPath(path)
 				if refreshErr != nil {
@@ -2916,9 +2916,9 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 					log.Printf("⚠️ Media not found in database after refresh")
 					return
 				}
-				
+
 				log.Printf("📥 Downloading assets for new media: %s (TMDB ID: %d)", refreshedMedia.Title, refreshedMedia.TMDBID)
-				
+
 				// Download poster
 				posterPath, err := s.GetPosterService().DownloadPosterWithPath(refreshedMedia.Title, refreshedMedia.ID)
 				if err != nil {
@@ -2929,7 +2929,7 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 				} else {
 					log.Printf("ℹ️ No poster found for: %s", refreshedMedia.Title)
 				}
-				
+
 				// Download logo (works like poster - searches TMDB by title)
 				if s.GetTMDBService() != nil {
 					log.Printf("🏷️ Downloading logo for: %s", refreshedMedia.Title)
@@ -2943,7 +2943,7 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 						log.Printf("ℹ️ No logo found for: %s", refreshedMedia.Title)
 					}
 				}
-				
+
 				// Download backdrop if not already present (use TMDB ID directly when available)
 				if s.GetTMDBService() != nil && refreshedMedia.BackdropPath == "" {
 					log.Printf("🖼️ Downloading backdrop for: %s", refreshedMedia.Title)
@@ -2965,25 +2965,25 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 						log.Printf("ℹ️ No backdrop found for: %s", refreshedMedia.Title)
 					}
 				}
-				
+
 				// Save poster, logo, and backdrop paths in a single update
 				if updateErr := s.GetMediaService().UpdateMedia(refreshedMedia); updateErr != nil {
 					log.Printf("⚠️ Failed to update media with asset paths: %v", updateErr)
 				} else {
 					log.Printf("✅ Saved asset paths for: %s", refreshedMedia.Title)
 				}
-				
+
 				// Check if media needs subtitles and download if necessary
 				if s.subtitleMatcherService != nil {
 					log.Printf("🔍 Checking if %s needs English subtitles...", refreshedMedia.Title)
-					
+
 					// Get existing subtitle tracks
 					tracks, trackErr := s.GetMediaService().GetSubtitleTracks(refreshedMedia.ID)
 					if trackErr != nil {
 						log.Printf("⚠️ Failed to get subtitle tracks for %s: %v", refreshedMedia.Title, trackErr)
 						return
 					}
-					
+
 					// Check if media has any English subtitles
 					hasEnglishSub := false
 					for _, track := range tracks {
@@ -2999,7 +2999,7 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 							break
 						}
 					}
-					
+
 					if !hasEnglishSub {
 						log.Printf("📥 No English subtitles found for %s, downloading...", refreshedMedia.Title)
 						if subErr := s.subtitleMatcherService.SearchAndDownloadSubtitle(refreshedMedia); subErr != nil {
@@ -3014,14 +3014,15 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 			}()
 		}
 	}
-	
+
 	return nil
 }
 
 // extractSubtitleAndAudioTracks extracts internal subtitle and audio track information
 func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path string) {
+	defer probeSlot()() // ffprobe/ffmpeg: share the host with playback (governor)
 	log.Printf("🎬 Extracting subtitle and audio tracks for: %s", media.Title)
-	
+
 	// Use ffprobe to extract all stream information
 	cmd := utils.NiceCommand("ffprobe",
 		"-v", "quiet",
@@ -3043,9 +3044,9 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 			Language    string `json:"tags.language"`
 			Title       string `json:"tags.title"`
 			Disposition struct {
-				Default  int `json:"default"`
-				Forced   int `json:"forced"`
-				Hearing  int `json:"hearing_impaired"`
+				Default int `json:"default"`
+				Forced  int `json:"forced"`
+				Hearing int `json:"hearing_impaired"`
 			} `json:"disposition"`
 			Tags struct {
 				Language string `json:"language"`
@@ -3063,7 +3064,7 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 	var subtitleTracks []models.SubtitleTrack
 	var audioTracks []models.AudioTrack
 	hasEnglishSubtitle := false
-	
+
 	for _, stream := range probeData.Streams {
 		if stream.CodecType == "subtitle" {
 			language := stream.Tags.Language
@@ -3109,7 +3110,7 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 				TrackType:   "internal",
 			}
 			subtitleTracks = append(subtitleTracks, subtitleTrack)
-			
+
 			log.Printf("📝 Found English internal subtitle: %s (%s) - %s", language, stream.CodecName, title)
 		} else if stream.CodecType == "audio" {
 			language := stream.Tags.Language
@@ -3135,7 +3136,7 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 				TrackType:   "internal",
 			}
 			audioTracks = append(audioTracks, audioTrack)
-			
+
 			log.Printf("🎵 Found audio track: %s (%s) - %s", language, stream.CodecName, title)
 		}
 	}
@@ -3169,7 +3170,7 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 			TrackType: "external",
 		}
 		subtitleTracks = append(subtitleTracks, subtitleTrack)
-		
+
 		log.Printf("📄 Found English external subtitle: %s (%s)", extSub.Language, extSub.Format)
 	}
 
@@ -3200,101 +3201,101 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 // findExternalSubtitles finds external subtitle files for a video
 func (s *MediaScanner) findExternalSubtitles(videoPath string) []ExternalSubtitle {
 	var subtitles []ExternalSubtitle
-	
+
 	dir := filepath.Dir(videoPath)
 	baseName := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
-	
+
 	// Common subtitle extensions
 	subtitleExts := []string{".srt", ".vtt", ".ass", ".ssa", ".sub", ".idx", ".sbv", ".ttml", ".dfxp"}
-	
+
 	// Enhanced language patterns to detect
 	langPatterns := map[string]string{
-		"en":       "English",
-		"eng":      "English",
-		"english":  "English",
-		"es":       "Spanish",
-		"spa":      "Spanish", 
-		"spanish":  "Spanish",
-		"fr":       "French",
-		"fre":      "French",
-		"french":   "French",
-		"de":       "German",
-		"ger":      "German",
-		"german":   "German",
-		"it":       "Italian",
-		"ita":      "Italian",
-		"italian":  "Italian",
-		"pt":       "Portuguese",
-		"por":      "Portuguese",
+		"en":         "English",
+		"eng":        "English",
+		"english":    "English",
+		"es":         "Spanish",
+		"spa":        "Spanish",
+		"spanish":    "Spanish",
+		"fr":         "French",
+		"fre":        "French",
+		"french":     "French",
+		"de":         "German",
+		"ger":        "German",
+		"german":     "German",
+		"it":         "Italian",
+		"ita":        "Italian",
+		"italian":    "Italian",
+		"pt":         "Portuguese",
+		"por":        "Portuguese",
 		"portuguese": "Portuguese",
-		"ru":       "Russian",
-		"rus":      "Russian",
-		"russian":  "Russian",
-		"ja":       "Japanese",
-		"jpn":      "Japanese",
-		"japanese": "Japanese",
-		"ko":       "Korean",
-		"kor":      "Korean",
-		"korean":   "Korean",
-		"zh":       "Chinese",
-		"chi":      "Chinese",
-		"chinese":  "Chinese",
-		"ar":       "Arabic",
-		"ara":      "Arabic",
-		"arabic":   "Arabic",
-		"hi":       "Hindi",
-		"hin":      "Hindi",
-		"hindi":    "Hindi",
-		"nl":       "Dutch",
-		"dut":      "Dutch",
-		"dutch":    "Dutch",
-		"sv":       "Swedish",
-		"swe":      "Swedish",
-		"swedish":  "Swedish",
-		"no":       "Norwegian",
-		"nor":      "Norwegian",
-		"norwegian": "Norwegian",
-		"da":       "Danish",
-		"dan":      "Danish",
-		"danish":   "Danish",
-		"fi":       "Finnish",
-		"fin":      "Finnish",
-		"finnish":  "Finnish",
-		"pl":       "Polish",
-		"pol":      "Polish",
-		"polish":   "Polish",
-		"tr":       "Turkish",
-		"tur":      "Turkish",
-		"turkish":  "Turkish",
-		"he":       "Hebrew",
-		"heb":      "Hebrew",
-		"hebrew":   "Hebrew",
-		"th":       "Thai",
-		"tha":      "Thai",
-		"thai":     "Thai",
-		"vi":       "Vietnamese",
-		"vie":      "Vietnamese",
+		"ru":         "Russian",
+		"rus":        "Russian",
+		"russian":    "Russian",
+		"ja":         "Japanese",
+		"jpn":        "Japanese",
+		"japanese":   "Japanese",
+		"ko":         "Korean",
+		"kor":        "Korean",
+		"korean":     "Korean",
+		"zh":         "Chinese",
+		"chi":        "Chinese",
+		"chinese":    "Chinese",
+		"ar":         "Arabic",
+		"ara":        "Arabic",
+		"arabic":     "Arabic",
+		"hi":         "Hindi",
+		"hin":        "Hindi",
+		"hindi":      "Hindi",
+		"nl":         "Dutch",
+		"dut":        "Dutch",
+		"dutch":      "Dutch",
+		"sv":         "Swedish",
+		"swe":        "Swedish",
+		"swedish":    "Swedish",
+		"no":         "Norwegian",
+		"nor":        "Norwegian",
+		"norwegian":  "Norwegian",
+		"da":         "Danish",
+		"dan":        "Danish",
+		"danish":     "Danish",
+		"fi":         "Finnish",
+		"fin":        "Finnish",
+		"finnish":    "Finnish",
+		"pl":         "Polish",
+		"pol":        "Polish",
+		"polish":     "Polish",
+		"tr":         "Turkish",
+		"tur":        "Turkish",
+		"turkish":    "Turkish",
+		"he":         "Hebrew",
+		"heb":        "Hebrew",
+		"hebrew":     "Hebrew",
+		"th":         "Thai",
+		"tha":        "Thai",
+		"thai":       "Thai",
+		"vi":         "Vietnamese",
+		"vie":        "Vietnamese",
 		"vietnamese": "Vietnamese",
 	}
-	
+
 	log.Printf("🔍 Scanning for external subtitles in: %s", dir)
 	log.Printf("🎬 Video base name: %s", baseName)
-	
+
 	// Scan directory for subtitle files
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		log.Printf("⚠️ Failed to read directory %s: %v", dir, err)
 		return subtitles
 	}
-	
+
 	for _, file := range files {
 		if file.IsDir() {
 			continue
 		}
-		
+
 		fileName := file.Name()
 		fileExt := strings.ToLower(filepath.Ext(fileName))
-		
+
 		// Check if it's a subtitle file
 		isSubtitle := false
 		for _, ext := range subtitleExts {
@@ -3303,24 +3304,24 @@ func (s *MediaScanner) findExternalSubtitles(videoPath string) []ExternalSubtitl
 				break
 			}
 		}
-		
+
 		if !isSubtitle {
 			continue
 		}
-		
+
 		// Enhanced matching logic for subtitle files
 		fileBaseName := strings.TrimSuffix(fileName, fileExt)
 		fileBaseNameLower := strings.ToLower(fileBaseName)
 		baseNameLower := strings.ToLower(baseName)
-		
+
 		// Multiple matching strategies
 		isMatch := false
-		
+
 		// Strategy 1: Exact prefix match
 		if strings.HasPrefix(fileBaseNameLower, baseNameLower) {
 			isMatch = true
 		}
-		
+
 		// Strategy 2: Remove common video suffixes and try again
 		if !isMatch {
 			// Remove common video quality/source indicators from base name
@@ -3332,19 +3333,19 @@ func (s *MediaScanner) findExternalSubtitles(videoPath string) []ExternalSubtitl
 				"aac", "ac3", "dts", "mp3",
 				"yify", "rarbg", "yts", "eztv",
 			}
-			
+
 			for _, suffix := range videoSuffixes {
 				cleanBaseName = strings.ReplaceAll(cleanBaseName, "."+suffix, "")
 				cleanBaseName = strings.ReplaceAll(cleanBaseName, "-"+suffix, "")
 				cleanBaseName = strings.ReplaceAll(cleanBaseName, "_"+suffix, "")
 				cleanBaseName = strings.ReplaceAll(cleanBaseName, " "+suffix, "")
 			}
-			
+
 			if strings.HasPrefix(fileBaseNameLower, cleanBaseName) {
 				isMatch = true
 			}
 		}
-		
+
 		// Strategy 3: Check if subtitle filename contains the main title words
 		if !isMatch {
 			baseWords := strings.Fields(strings.ReplaceAll(strings.ReplaceAll(baseNameLower, ".", " "), "_", " "))
@@ -3355,17 +3356,17 @@ func (s *MediaScanner) findExternalSubtitles(videoPath string) []ExternalSubtitl
 				}
 			}
 		}
-		
+
 		if !isMatch {
 			continue
 		}
-		
+
 		// Extract language from filename
 		language := "Unknown"
-		
+
 		// Enhanced language detection
 		fileNameForLang := strings.ToLower(fileName)
-		
+
 		// Try to extract language from filename patterns
 		for code, lang := range langPatterns {
 			// Pattern 1: .lang. (e.g., movie.en.srt)
@@ -3374,21 +3375,21 @@ func (s *MediaScanner) findExternalSubtitles(videoPath string) []ExternalSubtitl
 				language = lang
 				break
 			}
-			
+
 			// Pattern 2: _lang_ (e.g., movie_en_srt)
 			pattern2 := fmt.Sprintf(`_%s_`, code)
 			if matched, _ := regexp.MatchString(pattern2, fileNameForLang); matched {
 				language = lang
 				break
 			}
-			
+
 			// Pattern 3: -lang- (e.g., movie-en-srt)
 			pattern3 := fmt.Sprintf(`-%s-`, code)
 			if matched, _ := regexp.MatchString(pattern3, fileNameForLang); matched {
 				language = lang
 				break
 			}
-			
+
 			// Pattern 4: lang at end (e.g., movie.en.srt, movie_en.srt)
 			pattern4 := fmt.Sprintf(`[._-]%s$`, code)
 			baseWithoutExt := strings.TrimSuffix(fileNameForLang, fileExt)
@@ -3397,62 +3398,62 @@ func (s *MediaScanner) findExternalSubtitles(videoPath string) []ExternalSubtitl
 				break
 			}
 		}
-		
+
 		// Get absolute file path
 		fullPath := filepath.Join(dir, fileName)
-		
+
 		// Verify file exists and is readable
 		fileInfo, err := os.Stat(fullPath)
 		if err != nil {
 			log.Printf("⚠️ Subtitle file not accessible: %s (%v)", fullPath, err)
 			continue
 		}
-		
+
 		// Check if file is not empty
 		if fileInfo.Size() == 0 {
 			log.Printf("⚠️ Subtitle file is empty: %s", fullPath)
 			continue
 		}
-		
+
 		// Try to read a small portion to verify it's a text file
 		file, err := os.Open(fullPath)
 		if err != nil {
 			log.Printf("⚠️ Cannot open subtitle file: %s (%v)", fullPath, err)
 			continue
 		}
-		
+
 		// Read first 512 bytes to check if it's a text file
 		buffer := make([]byte, 512)
 		n, err := file.Read(buffer)
 		file.Close()
-		
+
 		if err != nil && n == 0 {
 			log.Printf("⚠️ Cannot read subtitle file: %s (%v)", fullPath, err)
 			continue
 		}
-		
+
 		// Basic check if it looks like a subtitle file (contains common subtitle patterns)
 		content := string(buffer[:n])
-		isValidSubtitle := strings.Contains(content, "-->") || 
+		isValidSubtitle := strings.Contains(content, "-->") ||
 			strings.Contains(content, "WEBVTT") ||
 			strings.Contains(content, "[Script Info]") || // ASS/SSA
 			strings.Contains(content, "Dialogue:") // ASS/SSA
-		
+
 		if !isValidSubtitle {
 			log.Printf("⚠️ File doesn't appear to be a valid subtitle: %s", fullPath)
 			continue
 		}
-		
+
 		subtitle := ExternalSubtitle{
 			FilePath: fullPath,
 			Language: language,
 			Format:   strings.TrimPrefix(fileExt, "."),
 		}
-		
+
 		subtitles = append(subtitles, subtitle)
 		log.Printf("📄 Found external subtitle: %s (%s) - %s (%d bytes)", language, subtitle.Format, fullPath, fileInfo.Size())
 	}
-	
+
 	log.Printf("✅ Found %d external subtitle files for %s", len(subtitles), filepath.Base(videoPath))
 	return subtitles
 }
@@ -3591,7 +3592,7 @@ func (s *MediaScanner) processMediaTracks(media *models.Media) error {
 	// Process subtitle tracks
 	for _, track := range tracks.SubtitleTracks {
 		track.MediaID = media.ID
-		
+
 		// Check if track already exists
 		existingTracks, _ := s.GetMediaService().GetSubtitleTracks(media.ID)
 		exists := false
@@ -3601,7 +3602,7 @@ func (s *MediaScanner) processMediaTracks(media *models.Media) error {
 				break
 			}
 		}
-		
+
 		if !exists {
 			err = s.GetMediaService().CreateSubtitleTrack(&track)
 			if err != nil {
@@ -3615,7 +3616,7 @@ func (s *MediaScanner) processMediaTracks(media *models.Media) error {
 	// Process audio tracks
 	for _, track := range tracks.AudioTracks {
 		track.MediaID = media.ID
-		
+
 		// Check if track already exists
 		existingTracks, _ := s.GetMediaService().GetAudioTracks(media.ID)
 		exists := false
@@ -3625,7 +3626,7 @@ func (s *MediaScanner) processMediaTracks(media *models.Media) error {
 				break
 			}
 		}
-		
+
 		if !exists {
 			err = s.GetMediaService().CreateAudioTrack(&track)
 			if err != nil {
@@ -3647,8 +3648,9 @@ type MediaTracks struct {
 
 // analyzeMediaTracks uses ffprobe to extract track information from media files
 func (s *MediaScanner) analyzeMediaTracks(filePath string) (*MediaTracks, error) {
+	defer probeSlot()() // ffprobe/ffmpeg: share the host with playback (governor)
 	// Use ffprobe to get detailed stream information
-	cmd := utils.NiceCommand("ffprobe", 
+	cmd := utils.NiceCommand("ffprobe",
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",
@@ -3695,35 +3697,35 @@ func (s *MediaScanner) analyzeMediaTracks(filePath string) (*MediaTracks, error)
 		case "subtitle":
 			language := s.extractLanguageFromTags(stream.Tags)
 			title := s.extractTitleFromTags(stream.Tags, language, "subtitle")
-			
+
 			track := models.SubtitleTrack{
-				StreamIndex:         subtitleIndex, // Use subtitle-specific index for ffmpeg extraction
-				Language:           language,
-				Title:              title,
-				CodecName:          stream.CodecName,
-				TrackType:          "internal",
-				IsDefault:          stream.Disposition.Default == 1,
-				IsForced:           stream.Disposition.Forced == 1,
-				IsHearing:          stream.Disposition.HearingImpaired == 1,
+				StreamIndex: subtitleIndex, // Use subtitle-specific index for ffmpeg extraction
+				Language:    language,
+				Title:       title,
+				CodecName:   stream.CodecName,
+				TrackType:   "internal",
+				IsDefault:   stream.Disposition.Default == 1,
+				IsForced:    stream.Disposition.Forced == 1,
+				IsHearing:   stream.Disposition.HearingImpaired == 1,
 			}
-			
+
 			tracks.SubtitleTracks = append(tracks.SubtitleTracks, track)
 			subtitleIndex++
 
 		case "audio":
 			language := s.extractLanguageFromTags(stream.Tags)
 			title := s.extractTitleFromTags(stream.Tags, language, "audio")
-			
+
 			sampleRate := 0
 			if stream.SampleRate != "" {
 				sampleRate, _ = strconv.Atoi(stream.SampleRate)
 			}
-			
+
 			bitrate := 0
 			if stream.BitRate != "" {
 				bitrate, _ = strconv.Atoi(stream.BitRate)
 			}
-			
+
 			track := models.AudioTrack{
 				StreamIndex: audioIndex, // Use audio-specific index
 				Language:    language,
@@ -3735,7 +3737,7 @@ func (s *MediaScanner) analyzeMediaTracks(filePath string) (*MediaTracks, error)
 				TrackType:   "internal",
 				IsDefault:   stream.Disposition.Default == 1,
 			}
-			
+
 			tracks.AudioTracks = append(tracks.AudioTracks, track)
 			audioIndex++
 		}
@@ -3748,13 +3750,13 @@ func (s *MediaScanner) analyzeMediaTracks(filePath string) (*MediaTracks, error)
 func (s *MediaScanner) extractLanguageFromTags(tags map[string]string) string {
 	// Check various tag keys for language information
 	languageKeys := []string{"language", "lang", "LANGUAGE", "LANG"}
-	
+
 	for _, key := range languageKeys {
 		if lang, exists := tags[key]; exists && lang != "" {
 			return s.normalizeLanguage(lang)
 		}
 	}
-	
+
 	return "Unknown"
 }
 
@@ -3762,13 +3764,13 @@ func (s *MediaScanner) extractLanguageFromTags(tags map[string]string) string {
 func (s *MediaScanner) extractTitleFromTags(tags map[string]string, language, trackType string) string {
 	// Check various tag keys for title information
 	titleKeys := []string{"title", "TITLE", "handler_name", "HANDLER_NAME"}
-	
+
 	for _, key := range titleKeys {
 		if title, exists := tags[key]; exists && title != "" {
 			return title
 		}
 	}
-	
+
 	// Generate default title
 	if trackType == "audio" {
 		return fmt.Sprintf("%s Audio", language)
@@ -3779,7 +3781,7 @@ func (s *MediaScanner) extractTitleFromTags(tags map[string]string, language, tr
 // normalizeLanguage converts language codes to full language names
 func (s *MediaScanner) normalizeLanguage(lang string) string {
 	lang = strings.ToLower(strings.TrimSpace(lang))
-	
+
 	languageMap := map[string]string{
 		"en":  "English",
 		"eng": "English",
@@ -3830,16 +3832,16 @@ func (s *MediaScanner) normalizeLanguage(lang string) string {
 		"vi":  "Vietnamese",
 		"vie": "Vietnamese",
 	}
-	
+
 	if fullName, exists := languageMap[lang]; exists {
 		return fullName
 	}
-	
+
 	// If not found, capitalize first letter
 	if len(lang) > 0 {
 		return strings.ToUpper(lang[:1]) + lang[1:]
 	}
-	
+
 	return "Unknown"
 }
 
@@ -3854,7 +3856,7 @@ type MediaSearchResult struct {
 // findExistingMedia uses file path-based strategies only to ensure complete sync
 func (s *MediaScanner) findExistingMedia(path string, info os.FileInfo) (*models.Media, *MediaSearchResult, error) {
 	result := &MediaSearchResult{FoundBy: "none"}
-	
+
 	// Strategy 1: Search by exact path (primary method)
 	media, err := s.GetMediaService().GetMediaByPath(path)
 	if err != nil {
@@ -3997,8 +3999,6 @@ func (s *MediaScanner) normalizeTitleForComparison(title string) string {
 
 	return normalized
 }
-
-
 
 // findMediaByTitle searches for media by title
 func (s *MediaScanner) findMediaByTitle(title string) (*models.Media, error) {
@@ -4236,10 +4236,10 @@ func (s *MediaScanner) enhanceSequelTitleDetection(title, path string) string {
 	// Get the original filename for reference
 	filename := filepath.Base(path)
 	filename = strings.TrimSuffix(filename, filepath.Ext(filename))
-	
+
 	// Common sequel patterns to detect and preserve
 	sequelPatterns := []struct {
-		pattern string
+		pattern     string
 		description string
 	}{
 		{`(?i)\b(\w+)\s+(\d{1,2})\b`, "Direct sequel number (Movie 2)"},
@@ -4253,15 +4253,15 @@ func (s *MediaScanner) enhanceSequelTitleDetection(title, path string) string {
 	// Check if the current title is missing sequel information that exists in filename
 	for _, sp := range sequelPatterns {
 		re := regexp.MustCompile(sp.pattern)
-		
+
 		// Check if filename has sequel pattern but title doesn't
 		filenameMatches := re.FindStringSubmatch(filename)
 		titleMatches := re.FindStringSubmatch(title)
-		
+
 		if len(filenameMatches) > 0 && len(titleMatches) == 0 {
 			// Filename has sequel info but title doesn't - try to restore it
 			log.Printf("🔍 Found sequel pattern in filename: %s (%s)", filenameMatches[0], sp.description)
-			
+
 			// Try to intelligently add the sequel information to the title
 			if len(filenameMatches) >= 3 {
 				// For patterns with multiple groups, reconstruct the sequel part
@@ -4277,10 +4277,10 @@ func (s *MediaScanner) enhanceSequelTitleDetection(title, path string) string {
 	// Special handling for common franchise patterns
 	franchisePatterns := map[string][]string{
 		"Terminator": {"Salvation", "Rise of The Machines", "Genisys", "Dark Fate", "Judgment Day"},
-		"Shrek": {"2", "the Third", "Forever After"},
-		"Fast": {"Furious", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "X"},
-		"Mission": {"Impossible", "II", "III", "Ghost Protocol", "Rogue Nation", "Fallout"},
-		"John Wick": {"2", "3", "4", "Chapter 2", "Chapter 3", "Chapter 4"},
+		"Shrek":      {"2", "the Third", "Forever After"},
+		"Fast":       {"Furious", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "X"},
+		"Mission":    {"Impossible", "II", "III", "Ghost Protocol", "Rogue Nation", "Fallout"},
+		"John Wick":  {"2", "3", "4", "Chapter 2", "Chapter 3", "Chapter 4"},
 	}
 
 	// Check if this might be part of a known franchise
@@ -4288,7 +4288,7 @@ func (s *MediaScanner) enhanceSequelTitleDetection(title, path string) string {
 		if strings.Contains(strings.ToLower(filename), strings.ToLower(franchise)) {
 			for _, sequel := range sequels {
 				if strings.Contains(strings.ToLower(filename), strings.ToLower(sequel)) &&
-				   !strings.Contains(strings.ToLower(title), strings.ToLower(sequel)) {
+					!strings.Contains(strings.ToLower(title), strings.ToLower(sequel)) {
 					title = franchise + " " + sequel
 					log.Printf("🎬 Detected franchise sequel: %s", title)
 					break
@@ -4353,6 +4353,7 @@ func (s *MediaScanner) simpleCleanTitle(title string) string {
 }
 
 func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) error {
+	defer probeSlot()() // ffprobe/ffmpeg: share the host with playback (governor)
 	// Use FFprobe to extract video metadata
 	cmd := utils.NiceCommand("ffprobe",
 		"-v", "quiet",
@@ -4388,7 +4389,7 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 
 	// Extract duration and convert to seconds with robust fallbacks
 	var durationSeconds int
-	
+
 	// Try to get duration from format first
 	if probeData.Format.Duration != "" && probeData.Format.Duration != "N/A" {
 		if duration, err := strconv.ParseFloat(probeData.Format.Duration, 64); err == nil && duration > 0 {
@@ -4396,7 +4397,7 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 			log.Printf("📏 Duration from format: %.2f seconds for %s", duration, filepath.Base(path))
 		}
 	}
-	
+
 	// If format duration failed, try to get from video stream
 	if durationSeconds == 0 {
 		for _, stream := range probeData.Streams {
@@ -4412,17 +4413,17 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 			}
 		}
 	}
-	
+
 	// If still no duration, try alternative ffprobe command with different parameters
 	if durationSeconds == 0 {
 		log.Printf("⚠️ No duration found in standard probe, trying alternative method for %s", filepath.Base(path))
-		
+
 		altCmd := utils.NiceCommand("ffprobe",
 			"-v", "error",
 			"-show_entries", "format=duration",
 			"-of", "csv=p=0",
 			path)
-		
+
 		if altOutput, err := altCmd.Output(); err == nil {
 			durationStr := strings.TrimSpace(string(altOutput))
 			if durationStr != "" && durationStr != "N/A" {
@@ -4433,15 +4434,15 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 			}
 		}
 	}
-	
+
 	// Final fallback: estimate duration from file size and bitrate
 	if durationSeconds == 0 {
 		log.Printf("⚠️ Still no duration, attempting estimation for %s", filepath.Base(path))
-		
+
 		// Get file size
 		if stat, err := os.Stat(path); err == nil {
 			fileSize := stat.Size()
-			
+
 			// Try to get bitrate from format
 			if probeData.Format.BitRate != "" {
 				if bitrate, err := strconv.ParseInt(probeData.Format.BitRate, 10, 64); err == nil && bitrate > 0 {
@@ -4455,19 +4456,19 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 			}
 		}
 	}
-	
+
 	// ULTIMATE FALLBACK: Use ffmpeg to actually play and measure duration
 	if durationSeconds == 0 {
 		log.Printf("🚨 CRITICAL: No duration found by any method, using ffmpeg measurement for %s", filepath.Base(path))
 		durationSeconds = s.measureVideoDurationWithFFmpeg(path)
 	}
-	
+
 	// PENULTIMATE FALLBACK: Try frame counting method
 	if durationSeconds == 0 {
 		log.Printf("🚨 CRITICAL: Trying frame counting method for %s", filepath.Base(path))
 		durationSeconds = s.estimateDurationByFrameCounting(path)
 	}
-	
+
 	// ABSOLUTE FINAL FALLBACK: Estimate based on file size with standard video assumptions
 	if durationSeconds == 0 {
 		log.Printf("🚨 EMERGENCY: All methods failed, using file size estimation for %s", filepath.Base(path))
@@ -4475,22 +4476,22 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 			fileSize := stat.Size()
 			// Use multiple bitrate assumptions for better estimation
 			estimations := []int64{
-				(fileSize * 8) / (1 * 1024 * 1024),   // 1 Mbps
-				(fileSize * 8) / (2 * 1024 * 1024),   // 2 Mbps  
-				(fileSize * 8) / (4 * 1024 * 1024),   // 4 Mbps
-				(fileSize * 8) / (8 * 1024 * 1024),   // 8 Mbps
+				(fileSize * 8) / (1 * 1024 * 1024), // 1 Mbps
+				(fileSize * 8) / (2 * 1024 * 1024), // 2 Mbps
+				(fileSize * 8) / (4 * 1024 * 1024), // 4 Mbps
+				(fileSize * 8) / (8 * 1024 * 1024), // 8 Mbps
 			}
-			
+
 			// Choose the most reasonable estimation (between 5 minutes and 4 hours)
 			for _, est := range estimations {
 				if est >= 300 && est <= 14400 { // 5 minutes to 4 hours
 					durationSeconds = int(est)
-					log.Printf("📏 Emergency file size estimation: %d seconds (%.1f MB file, assumed bitrate) for %s", 
+					log.Printf("📏 Emergency file size estimation: %d seconds (%.1f MB file, assumed bitrate) for %s",
 						durationSeconds, float64(fileSize)/(1024*1024), filepath.Base(path))
 					break
 				}
 			}
-			
+
 			// If still no reasonable estimate, use middle ground
 			if durationSeconds == 0 {
 				durationSeconds = int(estimations[1]) // Use 2 Mbps assumption
@@ -4504,7 +4505,7 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 			}
 		}
 	}
-	
+
 	// Set the duration, ensuring it's never 0 for valid video files
 	if durationSeconds > 0 {
 		media.Duration = durationSeconds
@@ -4534,8 +4535,9 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 
 // measureVideoDurationWithFFmpeg uses ffmpeg to actually measure video duration by processing
 func (s *MediaScanner) measureVideoDurationWithFFmpeg(path string) int {
+	// Called from extractVideoMetadata, which already holds a scan slot.
 	log.Printf("🎬 Measuring video duration with FFmpeg for: %s", filepath.Base(path))
-	
+
 	// Method 1: Use ffmpeg with null output to measure duration
 	cmd := utils.NiceCommand("ffmpeg",
 		"-i", path,
@@ -4543,17 +4545,17 @@ func (s *MediaScanner) measureVideoDurationWithFFmpeg(path string) int {
 		"-",
 		"-v", "error",
 		"-stats")
-	
+
 	// Capture stderr where ffmpeg outputs progress information
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	
+
 	// Set timeout to prevent hanging (10 min for large files - this decodes the entire file)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	cmd = exec.CommandContext(ctx, cmd.Args[0], cmd.Args[1:]...)
 	cmd.Stderr = &stderr
-	
+
 	err := cmd.Run()
 	if err == nil {
 		// Parse the stderr output for duration information
@@ -4563,7 +4565,7 @@ func (s *MediaScanner) measureVideoDurationWithFFmpeg(path string) int {
 			return duration
 		}
 	}
-	
+
 	// Method 2: Use ffmpeg with very fast preset to get duration
 	cmd2 := utils.NiceCommand("ffmpeg",
 		"-i", path,
@@ -4572,15 +4574,15 @@ func (s *MediaScanner) measureVideoDurationWithFFmpeg(path string) int {
 		"-",
 		"-v", "quiet",
 		"-stats")
-	
+
 	var stderr2 bytes.Buffer
 	cmd2.Stderr = &stderr2
-	
+
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel2()
 	cmd2 = exec.CommandContext(ctx2, cmd2.Args[0], cmd2.Args[1:]...)
 	cmd2.Stderr = &stderr2
-	
+
 	if err := cmd2.Run(); err == nil {
 		output := stderr2.String()
 		if duration := s.parseDurationFromFFmpegOutput(output); duration > 0 {
@@ -4588,12 +4590,12 @@ func (s *MediaScanner) measureVideoDurationWithFFmpeg(path string) int {
 			return duration
 		}
 	}
-	
+
 	// Method 3: Use mediainfo as alternative if available
 	if duration := s.measureWithMediaInfo(path); duration > 0 {
 		return duration
 	}
-	
+
 	log.Printf("❌ All FFmpeg measurement methods failed for %s", filepath.Base(path))
 	return 0
 }
@@ -4607,7 +4609,7 @@ func (s *MediaScanner) parseDurationFromFFmpegOutput(output string) int {
 		`Duration: (\d{2}):(\d{2}):(\d{2})`,
 		`time=(\d{2}):(\d{2}):(\d{2})`,
 	}
-	
+
 	for _, pattern := range patterns {
 		re := regexp.MustCompile(pattern)
 		matches := re.FindStringSubmatch(output)
@@ -4615,14 +4617,14 @@ func (s *MediaScanner) parseDurationFromFFmpegOutput(output string) int {
 			hours, _ := strconv.Atoi(matches[1])
 			minutes, _ := strconv.Atoi(matches[2])
 			seconds, _ := strconv.Atoi(matches[3])
-			
+
 			totalSeconds := hours*3600 + minutes*60 + seconds
 			if totalSeconds > 0 {
 				return totalSeconds
 			}
 		}
 	}
-	
+
 	return 0
 }
 
@@ -4630,21 +4632,21 @@ func (s *MediaScanner) parseDurationFromFFmpegOutput(output string) int {
 func (s *MediaScanner) measureWithMediaInfo(path string) int {
 	// Try mediainfo command
 	cmd := exec.Command("mediainfo", "--Inform=General;%Duration%", path)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd = exec.CommandContext(ctx, cmd.Args[0], cmd.Args[1:]...)
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return 0 // mediainfo not available or failed
 	}
-	
+
 	durationStr := strings.TrimSpace(string(output))
 	if durationStr == "" {
 		return 0
 	}
-	
+
 	// mediainfo returns duration in milliseconds
 	if durationMs, err := strconv.ParseInt(durationStr, 10, 64); err == nil {
 		durationSeconds := int(durationMs / 1000)
@@ -4653,14 +4655,14 @@ func (s *MediaScanner) measureWithMediaInfo(path string) int {
 			return durationSeconds
 		}
 	}
-	
+
 	return 0
 }
 
 // estimateDurationByFrameCounting uses ffmpeg to count frames and estimate duration
 func (s *MediaScanner) estimateDurationByFrameCounting(path string) int {
 	log.Printf("🎞️ Attempting frame counting duration estimation for: %s", filepath.Base(path))
-	
+
 	// Use ffmpeg to get frame count and frame rate
 	cmd := utils.NiceCommand("ffprobe",
 		"-v", "error",
@@ -4669,37 +4671,37 @@ func (s *MediaScanner) estimateDurationByFrameCounting(path string) int {
 		"-show_entries", "stream=nb_frames,r_frame_rate",
 		"-of", "csv=p=0",
 		path)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd = exec.CommandContext(ctx, cmd.Args[0], cmd.Args[1:]...)
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		log.Printf("⚠️ Frame counting failed for %s: %v", filepath.Base(path), err)
 		return 0
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) < 1 {
 		return 0
 	}
-	
+
 	parts := strings.Split(lines[0], ",")
 	if len(parts) < 2 {
 		return 0
 	}
-	
+
 	// Parse frame count
 	frameCount, err := strconv.Atoi(strings.TrimSpace(parts[0]))
 	if err != nil || frameCount <= 0 {
 		return 0
 	}
-	
+
 	// Parse frame rate (format: "25/1" or "29.97")
 	frameRateStr := strings.TrimSpace(parts[1])
 	var frameRate float64
-	
+
 	if strings.Contains(frameRateStr, "/") {
 		rateParts := strings.Split(frameRateStr, "/")
 		if len(rateParts) == 2 {
@@ -4712,20 +4714,20 @@ func (s *MediaScanner) estimateDurationByFrameCounting(path string) int {
 	} else {
 		frameRate, _ = strconv.ParseFloat(frameRateStr, 64)
 	}
-	
+
 	if frameRate <= 0 || frameRate > 120 { // Sanity check
 		frameRate = 25.0 // Default assumption
 	}
-	
+
 	// Calculate duration: frames / fps
 	duration := int(float64(frameCount) / frameRate)
-	
+
 	if duration > 10 && duration < 86400 { // Between 10 seconds and 24 hours
-		log.Printf("📏 Frame counting successful: %d frames at %.2f fps = %d seconds for %s", 
+		log.Printf("📏 Frame counting successful: %d frames at %.2f fps = %d seconds for %s",
 			frameCount, frameRate, duration, filepath.Base(path))
 		return duration
 	}
-	
+
 	log.Printf("⚠️ Frame counting gave unrealistic duration (%d seconds) for %s", duration, filepath.Base(path))
 	return 0
 }
@@ -4733,13 +4735,13 @@ func (s *MediaScanner) estimateDurationByFrameCounting(path string) int {
 // FixZeroDurations scans all media with 0 duration and attempts to fix them
 func (s *MediaScanner) FixZeroDurations() error {
 	log.Printf("🔧 Starting zero duration fix scan...")
-	
+
 	// Get all media with 0 duration
 	mediaList, err := s.GetMediaService().GetAllMedia()
 	if err != nil {
 		return fmt.Errorf("failed to query all media: %v", err)
 	}
-	
+
 	// Filter for media with 0 duration
 	var zeroDurationMedia []models.Media
 	for _, media := range mediaList {
@@ -4748,44 +4750,44 @@ func (s *MediaScanner) FixZeroDurations() error {
 		}
 	}
 	mediaList = zeroDurationMedia
-	
+
 	if len(mediaList) == 0 {
 		log.Printf("✅ No media with zero duration found")
 		return nil
 	}
-	
+
 	log.Printf("🔍 Found %d media items with zero duration, attempting to fix...", len(mediaList))
-	
+
 	fixed := 0
 	failed := 0
-	
+
 	for _, media := range mediaList {
 		// Check if file still exists
 		if _, err := os.Stat(media.FilePath); os.IsNotExist(err) {
 			log.Printf("⚠️ File no longer exists, skipping: %s", media.FilePath)
 			continue
 		}
-		
+
 		log.Printf("🔧 Fixing duration for: %s", media.Title)
-		
+
 		// Extract video metadata to get duration
 		if err := s.extractVideoMetadata(&media, media.FilePath); err != nil {
 			log.Printf("❌ Failed to extract metadata for %s: %v", media.Title, err)
 			failed++
 			continue
 		}
-		
+
 		// Update the media in database
 		if err := s.GetMediaService().UpdateMedia(&media); err != nil {
 			log.Printf("❌ Failed to update media %s: %v", media.Title, err)
 			failed++
 			continue
 		}
-		
+
 		log.Printf("✅ Fixed duration for %s: %d seconds (%.2f minutes)", media.Title, media.Duration, float64(media.Duration)/60.0)
 		fixed++
 	}
-	
+
 	log.Printf("🔧 Duration fix complete: %d fixed, %d failed", fixed, failed)
 	return nil
 }
@@ -5204,22 +5206,22 @@ func (s *MediaScanner) ProcessSingleFile(path string, info os.FileInfo) error {
 		if err != nil {
 			log.Printf("⚠️ Error checking existing media for %s: %v", path, err)
 		}
-		
+
 		isNewMedia := existingMedia == nil
-		
+
 		// Process the video file with poster download for new media
 		err = s.processVideoFileWithPosterDownload(path, info, isNewMedia)
 		if err != nil {
 			log.Printf("❌ Failed to process video file %s: %v", path, err)
 			return err
 		}
-		
+
 		if isNewMedia {
 			log.Printf("✅ Successfully processed new media file with poster download: %s", filepath.Base(path))
 		} else {
 			log.Printf("✅ Successfully updated existing media file: %s", filepath.Base(path))
 		}
-		
+
 		return nil
 	}
 
@@ -5557,7 +5559,7 @@ func (s *MediaScanner) regenerateAllAssets(mediaList []models.Media) {
 		}
 	}
 
-	log.Printf("✅ Intelligent asset generation completed - processed %d media items (skipped %d with existing assets)", 
+	log.Printf("✅ Intelligent asset generation completed - processed %d media items (skipped %d with existing assets)",
 		len(mediaNeedingAssets), len(mediaList)-len(mediaNeedingAssets))
 }
 
@@ -5593,7 +5595,7 @@ func (s *MediaScanner) regeneratePreviewClipsBatch(mediaList []models.Media) {
 
 		batch := mediaNeedingPreviews[i:end]
 		batchNum := (i / batchSize) + 1
-		log.Printf("🎬 Processing preview batch %d/%d (%d-%d of %d) - only missing previews", 
+		log.Printf("🎬 Processing preview batch %d/%d (%d-%d of %d) - only missing previews",
 			batchNum, totalBatches, i+1, end, len(mediaNeedingPreviews))
 
 		// Process batch sequentially to avoid overwhelming ffmpeg
@@ -5611,7 +5613,7 @@ func (s *MediaScanner) regeneratePreviewClipsBatch(mediaList []models.Media) {
 		}
 	}
 
-	log.Printf("✅ Intelligent preview clip generation completed - processed %d media items (skipped %d with existing previews)", 
+	log.Printf("✅ Intelligent preview clip generation completed - processed %d media items (skipped %d with existing previews)",
 		len(mediaNeedingPreviews), len(mediaList)-len(mediaNeedingPreviews))
 }
 
@@ -5829,7 +5831,7 @@ func (s *MediaScanner) generateVideoOnlyPreview(media *models.Media) (string, er
 		"-c:v", "libx264",
 		"-preset", "fast", // Fast preset for video-only
 		"-crf", "22", // Good quality for video-only
-		"-an", // No audio track
+		"-an",                     // No audio track
 		"-movflags", "+faststart", // Web optimization
 		"-pix_fmt", "yuv420p", // Ensure compatibility
 		"-threads", "0", // Use all available threads
@@ -5862,7 +5864,7 @@ func (s *MediaScanner) getOptimalPreviewTimestamp(videoPath string) int {
 
 	// Strategy 1: Try intelligent scene detection for peak moments
 	if peakTime := s.detectPeakMoments(videoPath, duration); peakTime > 0 {
-		log.Printf("🎯 Using peak moment detection: %ds (%.1f%% of %ds duration)", 
+		log.Printf("🎯 Using peak moment detection: %ds (%.1f%% of %ds duration)",
 			peakTime, float64(peakTime)/float64(duration)*100, duration)
 		return peakTime
 	}
@@ -5873,15 +5875,15 @@ func (s *MediaScanner) getOptimalPreviewTimestamp(videoPath string) int {
 	rand.Seed(time.Now().UnixNano())
 	selectedPercent := candidates[rand.Intn(len(candidates))]
 	optimalTime := int(float64(duration) * selectedPercent)
-	
+
 	// Ensure minimum 30 seconds
 	if optimalTime < 30 {
 		optimalTime = 30
 	}
-	
-	log.Printf("🎯 Using smart random selection: %ds (%.1f%% of %ds duration)", 
+
+	log.Printf("🎯 Using smart random selection: %ds (%.1f%% of %ds duration)",
 		optimalTime, selectedPercent*100, duration)
-	
+
 	return optimalTime
 }
 
@@ -5908,7 +5910,7 @@ func (s *MediaScanner) detectPeakMoments(videoPath string, duration int) int {
 		// Select a scene change in the middle portion (30-70% of video)
 		minTime := int(float64(duration) * 0.3)
 		maxTime := int(float64(duration) * 0.7)
-		
+
 		for _, sceneTime := range sceneChanges {
 			if sceneTime >= minTime && sceneTime <= maxTime {
 				return sceneTime
@@ -5922,7 +5924,7 @@ func (s *MediaScanner) detectPeakMoments(videoPath string, duration int) int {
 // parseSceneChanges extracts scene change timestamps from FFmpeg output
 func (s *MediaScanner) parseSceneChanges(output string, duration int) []int {
 	var sceneChanges []int
-	
+
 	// Parse FFmpeg scene detection output
 	// Look for patterns like "pts_time:123.456" in the output
 	lines := strings.Split(output, "\n")
@@ -5952,7 +5954,7 @@ func (s *MediaScanner) getVideoDurationSeconds(videoPath string) int {
 		"-show_entries", "format=duration",
 		"-of", "csv=p=0",
 		videoPath)
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		log.Printf("⚠️ ffprobe failed for %s: %v", videoPath, err)
@@ -6059,27 +6061,27 @@ func (s *MediaScanner) findExistingPreviewFile(media *models.Media) string {
 
 // Preview generation queue to prevent CPU overload
 var (
-	previewQueue = make(chan *models.Media, 100) // Buffer for 100 items
+	previewQueue         = make(chan *models.Media, 100) // Buffer for 100 items
 	previewWorkerStarted = false
-	previewQueueMutex sync.Mutex
+	previewQueueMutex    sync.Mutex
 )
 
 // startPreviewWorker starts a single worker to process preview generation sequentially
 func (s *MediaScanner) startPreviewWorker() {
 	previewQueueMutex.Lock()
 	defer previewQueueMutex.Unlock()
-	
+
 	if previewWorkerStarted {
 		return // Worker already running
 	}
-	
+
 	previewWorkerStarted = true
 	log.Printf("📺 Starting sequential preview generation worker to prevent CPU overload")
-	
+
 	go func() {
 		for media := range previewQueue {
 			log.Printf("🎬 Processing preview for: %s (Queue size: %d)", media.Title, len(previewQueue))
-			
+
 			// Generate preview with comprehensive fallbacks
 			previewPath, err := s.generatePreviewWithFallbacks(media)
 			if err != nil {
@@ -6090,7 +6092,7 @@ func (s *MediaScanner) startPreviewWorker() {
 				media.PreviewClipPath = previewPath
 				s.GetMediaService().UpdateMedia(media)
 			}
-			
+
 			// Add delay between processing to prevent CPU overload
 			time.Sleep(2 * time.Second)
 		}
@@ -6133,7 +6135,7 @@ func (s *MediaScanner) scheduleAssetGenerationWithFallbacks(media *models.Media,
 	if needsPreview {
 		// Start the preview worker if not already running
 		s.startPreviewWorker()
-		
+
 		// Add to queue for sequential processing
 		select {
 		case previewQueue <- media:
@@ -6243,7 +6245,7 @@ func (s *MediaScanner) scheduleSeriesAssetDownload(series *models.Series) {
 		} else {
 			log.Printf("✅ TV series assets saved for %s: %+v", seriesTitle, updates)
 		}
-	}( *series)
+	}(*series)
 }
 
 // regenerateMediaAssets regenerates only missing assets for a single media item
@@ -6379,7 +6381,7 @@ func (s *MediaScanner) isAssetMissing(assetPath, assetType string, mediaID uint,
 		log.Printf("🔍 %s path empty for media %d (%s)", assetType, mediaID, mediaTitle)
 		return true
 	}
-	
+
 	// Check if file exists on disk - try path as-is first
 	if _, err := os.Stat(assetPath); err == nil {
 		// File exists, continue with size/validity checks
@@ -6399,25 +6401,25 @@ func (s *MediaScanner) isAssetMissing(assetPath, assetType string, mediaID uint,
 			return true
 		}
 	}
-	
+
 	// Check file size (should be at least 1KB for thumbnails/posters, 10KB for previews)
 	stat, err := os.Stat(assetPath)
 	if err != nil {
 		log.Printf("🔍 Cannot stat %s file: %s for media %d (%s)", assetType, assetPath, mediaID, mediaTitle)
 		return true
 	}
-	
+
 	minSize := int64(1024) // 1KB for thumbnails/posters
 	if assetType == "preview" || assetType == "preview_clip" {
 		minSize = 10240 // 10KB for preview clips
 	}
-	
+
 	if stat.Size() < minSize {
-		log.Printf("🔍 %s file too small (%d bytes): %s for media %d (%s)", 
+		log.Printf("🔍 %s file too small (%d bytes): %s for media %d (%s)",
 			assetType, stat.Size(), assetPath, mediaID, mediaTitle)
 		return true
 	}
-	
+
 	// Additional validation for preview clips (check if it's a valid video)
 	if assetType == "preview" || assetType == "preview_clip" {
 		if !s.validatePreviewFile(assetPath) {
@@ -6425,7 +6427,7 @@ func (s *MediaScanner) isAssetMissing(assetPath, assetType string, mediaID uint,
 			return true
 		}
 	}
-	
+
 	log.Printf("✅ %s exists and valid: %s for media %d (%s)", assetType, assetPath, mediaID, mediaTitle)
 	return false
 }
@@ -6846,7 +6848,7 @@ func (s *MediaScanner) BatchScanMediaLibraryWithProgress() error {
 // validateCompleteSyncWithProgress ensures all filesystem media files are in database
 func (s *MediaScanner) validateCompleteSyncWithProgress(progress *ProgressTracker) error {
 	progress.LogWithProgress("🔍 Starting comprehensive filesystem-database sync validation...")
-	
+
 	// Step 1: Get all video files from filesystem
 	progress.UpdateOperation("📁 Discovering all video files in storage...")
 	allFiles, err := s.discoverAllVideoFiles()
@@ -6854,7 +6856,7 @@ func (s *MediaScanner) validateCompleteSyncWithProgress(progress *ProgressTracke
 		return fmt.Errorf("failed to discover video files: %v", err)
 	}
 	progress.LogWithProgress(fmt.Sprintf("📁 Found %d video files in storage", len(allFiles)))
-	
+
 	// Step 2: Get all media from database
 	progress.UpdateOperation("📊 Loading all media from database...")
 	allMedia, err := s.getAllMediaFromDatabase()
@@ -6862,42 +6864,42 @@ func (s *MediaScanner) validateCompleteSyncWithProgress(progress *ProgressTracke
 		return fmt.Errorf("failed to load media from database: %v", err)
 	}
 	progress.LogWithProgress(fmt.Sprintf("📊 Found %d media entries in database", len(allMedia)))
-	
+
 	// Step 3: Create maps for efficient lookup
 	dbPaths := make(map[string]*models.Media)
 	for i := range allMedia {
 		dbPaths[allMedia[i].FilePath] = &allMedia[i]
 	}
-	
+
 	// Step 4: Check each filesystem file against database
 	var missingFiles []string
 	var processedCount int
-	
+
 	for _, filePath := range allFiles {
 		processedCount++
 		if processedCount%100 == 0 {
 			progress.UpdateOperation(fmt.Sprintf("Validating files... (%d/%d)", processedCount, len(allFiles)))
 		}
-		
+
 		if _, exists := dbPaths[filePath]; !exists {
 			missingFiles = append(missingFiles, filePath)
 		}
 	}
-	
+
 	// Step 5: Process any missing files
 	if len(missingFiles) > 0 {
 		progress.LogWithProgress(fmt.Sprintf("⚠️ Found %d files missing from database, processing them now...", len(missingFiles)))
-		
+
 		for i, filePath := range missingFiles {
 			progress.UpdateOperation(fmt.Sprintf("Processing missing file %d/%d: %s", i+1, len(missingFiles), filepath.Base(filePath)))
-			
+
 			// Get file info
 			fileInfo, err := os.Stat(filePath)
 			if err != nil {
 				progress.LogWithProgress(fmt.Sprintf("❌ Cannot access file: %s - %v", filePath, err))
 				continue
 			}
-			
+
 			// Process the missing file
 			if err := s.processVideoFile(filePath, fileInfo); err != nil {
 				progress.LogWithProgress(fmt.Sprintf("❌ Failed to process missing file: %s - %v", filePath, err))
@@ -6908,21 +6910,21 @@ func (s *MediaScanner) validateCompleteSyncWithProgress(progress *ProgressTracke
 	} else {
 		progress.LogWithProgress("✅ All filesystem video files are present in database")
 	}
-	
+
 	// Step 6: Check for orphaned database entries (files that no longer exist)
 	progress.UpdateOperation("🧹 Checking for orphaned database entries...")
 	fileSet := make(map[string]bool)
 	for _, filePath := range allFiles {
 		fileSet[filePath] = true
 	}
-	
+
 	var orphanedMedia []models.Media
 	for _, media := range allMedia {
 		if !fileSet[media.FilePath] {
 			orphanedMedia = append(orphanedMedia, media)
 		}
 	}
-	
+
 	if len(orphanedMedia) > 0 {
 		progress.LogWithProgress(fmt.Sprintf("⚠️ Found %d orphaned database entries (files no longer exist)", len(orphanedMedia)))
 		for _, media := range orphanedMedia {
@@ -6931,19 +6933,19 @@ func (s *MediaScanner) validateCompleteSyncWithProgress(progress *ProgressTracke
 	} else {
 		progress.LogWithProgress("✅ No orphaned database entries found")
 	}
-	
+
 	// Step 7: Summary
 	totalFiles := len(allFiles)
 	totalDB := len(allMedia)
 	missing := len(missingFiles)
 	orphaned := len(orphanedMedia)
-	
+
 	progress.LogWithProgress("📊 Sync Validation Summary:")
 	progress.LogWithProgress(fmt.Sprintf("   📁 Files in storage: %d", totalFiles))
 	progress.LogWithProgress(fmt.Sprintf("   📊 Entries in database: %d", totalDB))
 	progress.LogWithProgress(fmt.Sprintf("   ➕ Missing from DB (now added): %d", missing))
 	progress.LogWithProgress(fmt.Sprintf("   🗑️ Orphaned in DB: %d", orphaned))
-	
+
 	if missing == 0 && orphaned == 0 {
 		progress.LogWithProgress("✅ Perfect sync: All storage files are in database, no orphaned entries")
 	} else if missing > 0 && orphaned == 0 {
@@ -6951,7 +6953,7 @@ func (s *MediaScanner) validateCompleteSyncWithProgress(progress *ProgressTracke
 	} else {
 		progress.LogWithProgress(fmt.Sprintf("⚠️ Sync issues: %d missing files processed, %d orphaned entries found", missing, orphaned))
 	}
-	
+
 	return nil
 }
 
@@ -6965,36 +6967,36 @@ func (s *MediaScanner) discoverAllVideoFiles() ([]string, error) {
 		".rmvb": true, ".vob": true, ".ogv": true, ".dv": true, ".qt": true,
 		".divx": true, ".xvid": true, ".f4v": true, ".m2ts": true, ".mts": true,
 	}
-	
+
 	err := filepath.Walk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Continue walking even if there's an error with one file
 		}
-		
+
 		// Skip directories
 		if info.IsDir() {
 			return nil
 		}
-		
+
 		// Skip system files and recycle bin
 		if strings.Contains(path, "$RECYCLE.BIN") || strings.HasPrefix(filepath.Base(path), "$") {
 			return nil
 		}
-		
+
 		// Skip hidden files
 		if strings.HasPrefix(filepath.Base(path), ".") {
 			return nil
 		}
-		
+
 		// Check if it's a video file
 		ext := strings.ToLower(filepath.Ext(path))
 		if videoExtensions[ext] {
 			videoFiles = append(videoFiles, path)
 		}
-		
+
 		return nil
 	})
-	
+
 	return videoFiles, err
 }
 
@@ -7063,7 +7065,7 @@ func (s *MediaScanner) extractMetadataFromPath(path string) *FileMetadata {
 	// Only classify as episode if BOTH filename AND path indicate it's an episode
 	isEpisodeByFilename := s.isEpisodeFile(filename)
 	isEpisodeByPath := s.isEpisodeFromPath(path)
-	
+
 	if isEpisodeByFilename && isEpisodeByPath {
 		metadata.Type = "episode"
 		metadata.SeriesTitle, metadata.Season, metadata.Episode = s.extractEpisodeInfoFromPath(path)
@@ -7119,7 +7121,7 @@ func (s *MediaScanner) isEpisodeFromPath(fullPath string) bool {
 			`^[Ss]eason\s*\d+$`,
 			`^[Ss]\d+$`,
 			`^Season\s*\d+$`,
-			`\b[Ss]\d{2}\b`,      // Match S01, S02, etc. anywhere in folder name (e.g., "Panchayat S04 (2025)")
+			`\b[Ss]\d{2}\b`,       // Match S01, S02, etc. anywhere in folder name (e.g., "Panchayat S04 (2025)")
 			`\b[Ss]eason\s*\d+\b`, // Match "Season 1" anywhere in folder name
 		}
 
@@ -7134,7 +7136,7 @@ func (s *MediaScanner) isEpisodeFromPath(fullPath string) bool {
 	mediaPath := s.GetMediaPath()
 	relPath, _ := filepath.Rel(mediaPath, fullPath)
 	pathDepth := len(strings.Split(relPath, string(filepath.Separator)))
-	
+
 	// If file is directly in media root or one level deep without season folders, treat as movie
 	if pathDepth <= 2 {
 		return false
@@ -7281,14 +7283,14 @@ func (s *MediaScanner) cleanTitle(title string) string {
 
 	// Remove technical patterns but preserve movie content
 	patterns := []string{
-		`\[\d{4}p\]`,                                    // Remove [1080p] in brackets
-		`\b\d{4}p\b`,                                    // Remove standalone resolution like 1080p
-		`\b(?i)(x264|x265|h264|h265|HEVC|AVC)\b`,       // Remove codecs
-		`\b(?i)(BluRay|WEBRip|DVDRip|HDTV|WEB-DL)\b`,   // Remove sources
-		`\b(?i)(YTS|YIFY|RARBG|ETRG)\b`,                // Remove release groups
-		`\[(?i)(YTS|YIFY|RARBG|ETRG).*?\]`,             // Remove release group brackets
-		`\b(?i)(AAC|DDP|DD|5\.1|7\.1|Atmos)\b`,         // Remove audio formats
-		`\b(?i)(10bit|8bit)\b`,                          // Remove bit depth
+		`\[\d{4}p\]`,                                 // Remove [1080p] in brackets
+		`\b\d{4}p\b`,                                 // Remove standalone resolution like 1080p
+		`\b(?i)(x264|x265|h264|h265|HEVC|AVC)\b`,     // Remove codecs
+		`\b(?i)(BluRay|WEBRip|DVDRip|HDTV|WEB-DL)\b`, // Remove sources
+		`\b(?i)(YTS|YIFY|RARBG|ETRG)\b`,              // Remove release groups
+		`\[(?i)(YTS|YIFY|RARBG|ETRG).*?\]`,           // Remove release group brackets
+		`\b(?i)(AAC|DDP|DD|5\.1|7\.1|Atmos)\b`,       // Remove audio formats
+		`\b(?i)(10bit|8bit)\b`,                       // Remove bit depth
 	}
 
 	for _, pattern := range patterns {
@@ -7304,9 +7306,9 @@ func (s *MediaScanner) cleanTitle(title string) string {
 
 	// Remove empty brackets and parentheses (but preserve content with meaningful info)
 	emptyBrackets := []string{
-		`\[\s*\]`,     // Empty brackets
-		`\(\s*\)`,     // Empty parentheses
-		`\{\s*\}`,     // Empty braces
+		`\[\s*\]`, // Empty brackets
+		`\(\s*\)`, // Empty parentheses
+		`\{\s*\}`, // Empty braces
 	}
 
 	for _, pattern := range emptyBrackets {
@@ -7333,7 +7335,7 @@ func (s *MediaScanner) cleanTitle(title string) string {
 						break
 					}
 				}
-				
+
 				// Don't change roman numerals or already processed words
 				if !isRomanNumeral {
 					words[i] = strings.ToUpper(string(word[0])) + strings.ToLower(word[1:])
@@ -7349,13 +7351,13 @@ func (s *MediaScanner) cleanTitle(title string) string {
 // titleNeedsCleaning checks if a title contains technical terms that need cleaning
 func (s *MediaScanner) titleNeedsCleaning(title string) bool {
 	technicalPatterns := []string{
-		`\d{4}p`,                                    // Resolution like 1080p
-		`(?i)(x264|x265|h264|h265|HEVC|AVC)`,       // Codecs
-		`(?i)(BluRay|WEBRip|DVDRip|HDTV|WEB-DL)`,   // Sources
-		`(?i)(YTS|YIFY|RARBG|ETRG)`,                // Release groups
-		`(?i)(AAC|DDP|DD|5\.1|7\.1|Atmos)`,         // Audio formats
-		`(?i)(10bit|8bit)`,                          // Bit depth
-		`\[.*?\]`,                                   // Any brackets
+		`\d{4}p`,                                 // Resolution like 1080p
+		`(?i)(x264|x265|h264|h265|HEVC|AVC)`,     // Codecs
+		`(?i)(BluRay|WEBRip|DVDRip|HDTV|WEB-DL)`, // Sources
+		`(?i)(YTS|YIFY|RARBG|ETRG)`,              // Release groups
+		`(?i)(AAC|DDP|DD|5\.1|7\.1|Atmos)`,       // Audio formats
+		`(?i)(10bit|8bit)`,                       // Bit depth
+		`\[.*?\]`,                                // Any brackets
 	}
 
 	for _, pattern := range technicalPatterns {
@@ -7369,10 +7371,10 @@ func (s *MediaScanner) titleNeedsCleaning(title string) bool {
 // isSequelTitle checks if a title contains sequel indicators (numbers, roman numerals)
 func (s *MediaScanner) isSequelTitle(title string) bool {
 	sequelPatterns := []string{
-		`\b(2|3|4|5|6|7|8|9|10)\b`,                    // Numbers 2-10
-		`\b(II|III|IV|V|VI|VII|VIII|IX|X|XI|XII)\b`,   // Roman numerals
+		`\b(2|3|4|5|6|7|8|9|10)\b`,                           // Numbers 2-10
+		`\b(II|III|IV|V|VI|VII|VIII|IX|X|XI|XII)\b`,          // Roman numerals
 		`\b(Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten)\b`, // Written numbers
-		`\b(Part|Chapter)\s+\d+\b`,                    // Part/Chapter numbers
+		`\b(Part|Chapter)\s+\d+\b`,                           // Part/Chapter numbers
 	}
 
 	for _, pattern := range sequelPatterns {
@@ -7387,18 +7389,18 @@ func (s *MediaScanner) isSequelTitle(title string) bool {
 
 // MemoryStats holds memory usage information
 type MemoryStats struct {
-	AllocMB      uint64
-	SysMB        uint64
-	NumGC        uint32
-	Goroutines   int
-	HeapObjects  uint64
+	AllocMB     uint64
+	SysMB       uint64
+	NumGC       uint32
+	Goroutines  int
+	HeapObjects uint64
 }
 
 // getMemoryStats returns current memory usage statistics
 func (s *MediaScanner) getMemoryStats() MemoryStats {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	
+
 	return MemoryStats{
 		AllocMB:     bToMb(m.Alloc),
 		SysMB:       bToMb(m.Sys),
@@ -7416,18 +7418,18 @@ func bToMb(b uint64) uint64 {
 // checkMemoryPressure returns true if system is under memory pressure
 func (s *MediaScanner) checkMemoryPressure() bool {
 	stats := s.getMemoryStats()
-	
+
 	// Conservative limits for i5-4590 with 16GB RAM
 	if stats.AllocMB > 2048 { // 2GB allocated memory limit
 		log.Printf("⚠️ High memory usage detected: %d MB allocated", stats.AllocMB)
 		return true
 	}
-	
+
 	if stats.Goroutines > 20 { // Very low goroutine limit
 		log.Printf("⚠️ High goroutine count: %d active", stats.Goroutines)
 		return true
 	}
-	
+
 	return false
 }
 
@@ -7447,7 +7449,7 @@ func (s *MediaScanner) setProcessLimits() error {
 		log.Printf("⚠️ Could not get memory limits: %v", err)
 		return err
 	}
-	
+
 	// Set virtual memory limit to 4GB
 	rLimit.Cur = 4 * 1024 * 1024 * 1024 // 4GB
 	err = syscall.Setrlimit(syscall.RLIMIT_AS, &rLimit)
@@ -7455,8 +7457,18 @@ func (s *MediaScanner) setProcessLimits() error {
 		log.Printf("⚠️ Could not set memory limits: %v", err)
 		return err
 	}
-	
+
 	log.Printf("✅ Process memory limit set to 4GB")
 	return nil
 }
 
+// probeSlot waits for a scan slot from the resource governor and returns its
+// release. Only the expensive steps (ffprobe/ffmpeg) take a slot, so skipping
+// unchanged files stays instant.
+func probeSlot() func() {
+	release, err := governor.Default.Acquire(context.Background(), governor.Scan)
+	if err != nil {
+		return func() {}
+	}
+	return release
+}

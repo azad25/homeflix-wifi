@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"homeflix-backend/internal/services/governor"
 	"log"
 	"os"
 	"path/filepath"
@@ -446,7 +447,14 @@ func (s *Service) process(ctx context.Context, c Candidate, budget int64) (Video
 	}
 	s.mu.Unlock()
 	tmp := filepath.Join(job, "out.mp4")
+	// Trailer encodes are the least urgent work on the box: wait for a bulk
+	// slot (none while someone is watching; at most MaxWait when busy).
+	release, err := governor.Default.Acquire(ctx, governor.Bulk)
+	if err != nil {
+		return Video{}, err
+	}
 	v, err := s.encodeFn(ctx, src, tmp, budget)
+	release()
 	if err != nil {
 		return Video{}, err
 	}

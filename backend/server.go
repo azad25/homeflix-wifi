@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"homeflix-backend/internal/api/handlers"
+	"homeflix-backend/internal/services/governor"
 	"io"
 	"log"
 	"net/http"
@@ -110,6 +112,14 @@ func main() {
 	// client can't play natively
 	hlsService := services.NewHLSService("./hls_cache")
 
+	// Resource governor: background work (previews, thumbnails, scans,
+	// trailer encodes) gets CPU/disk by priority, and backs off while
+	// someone is watching or the host is short of CPU or memory.
+	governor.Default.CountStreams(hlsService.ActiveSessions)
+	governor.Default.CountStreams(transcodeService.GetActiveStreams)
+	handlers.LoadGovernorSettings()
+	governor.Default.Start(context.Background(), 2*time.Second)
+
 	// Indexed library search (FTS5 with LIKE fallback)
 	searchService := services.NewSearchService(db)
 
@@ -157,34 +167,34 @@ func main() {
 			log.Printf("✅ Notification service initialized successfully")
 			// Start background notification generation
 			notificationService.Start()
-			
+
 			// Create some initial diverse notifications for better UX
 			go func() {
 				time.Sleep(2 * time.Second) // Wait for services to be ready
 				log.Printf("🔔 Creating initial diverse notifications...")
-				
+
 				// Create different types of notifications
 				if err := notificationService.CreateTMDBTrendingMoviesNotification(); err != nil {
 					log.Printf("❌ Failed to create trending movies notification: %v", err)
 				}
-				
+
 				if err := notificationService.CreateTMDBUpcomingMoviesNotification(); err != nil {
 					log.Printf("❌ Failed to create upcoming movies notification: %v", err)
 				}
-				
+
 				if err := notificationService.CreateTMDBNowPlayingNotification(); err != nil {
 					log.Printf("❌ Failed to create now playing notification: %v", err)
 				}
-				
+
 				if err := notificationService.CreateTMDBUpcomingTVNotification(); err != nil {
 					log.Printf("❌ Failed to create upcoming TV notification: %v", err)
 				}
-				
+
 				if err := notificationService.CreateTMDBNowAiringTVNotification(); err != nil {
 					log.Printf("❌ Failed to create now airing TV notification: %v", err)
 				}
 			}()
-			
+
 			defer notificationService.Close()
 		}
 	} else {
@@ -194,7 +204,6 @@ func main() {
 
 	// Create notification service adapter for scanner
 	notificationServiceAdapter := adapters.NewNotificationServiceAdapter(notificationService)
-
 
 	// Initialize media scanner with adapted services
 	mediaScanner := scanner.NewMediaScanner(cfg.MediaPath, mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter, notificationServiceAdapter, openSubService)
@@ -303,6 +312,24 @@ func main() {
 		c.Next()
 	})
 
+	// Playback activity for the governor: direct play, HLS and Live TV.
+	r.Use(func(c *gin.Context) {
+		p := c.Request.URL.Path
+		isStream := (strings.HasPrefix(p, "/api/stream/") && !strings.HasSuffix(p, "/info") && c.Request.Method == http.MethodGet) ||
+			strings.HasPrefix(p, "/api/livetv/p/")
+		if !isStream {
+			c.Next()
+			return
+		}
+		key := c.ClientIP() + " " + strings.SplitN(strings.TrimPrefix(strings.TrimPrefix(p, "/api/stream/"), "/api/livetv/p/"), "/", 2)[0]
+		done := governor.Default.Track() // in flight
+		c.Next()
+		done()
+		if c.Writer.Status() < 400 {
+			governor.Default.Seen(key) // still watching for SeenWindow after this request
+		}
+	})
+
 	// Compress JSON/text responses (big library and widget payloads)
 	r.Use(api.Gzip())
 
@@ -312,7 +339,7 @@ func main() {
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-ID", "x-user-id", "X-Session-ID", "x-session-id", "Range", "Cache-Control", "Pragma", "Expires", "X-Cast-Sender"},
 		ExposeHeaders:    []string{"Content-Length", "Content-Range", "Accept-Ranges", "Content-Type", "X-Cache", "Connection"},
-		AllowCredentials: false, // Set to false when using wildcard origin
+		AllowCredentials: false,          // Set to false when using wildcard origin
 		MaxAge:           12 * time.Hour, // Cache preflight for 12 hours
 	}))
 
@@ -342,7 +369,6 @@ func main() {
 		musicRoutes.GET("/tracks/:youtube_id/stream", musicHandler.GetTrackStream)
 	}
 
-
 	// Start server with optimizations
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -363,9 +389,10 @@ func main() {
 	log.Printf("🌐 Server accessible at http://0.0.0.0:%s", port)
 	log.Printf("⚡ Performance optimizations: Sendfile=%v, DirectIO=%v, TCP_NODELAY=true", true, true)
 	log.Printf("📊 Resource limits: ReadTimeout=30s, WriteTimeout=5m, IdleTimeout=2m")
-	
+
 	log.Fatal(srv.ListenAndServe())
 }
+
 // loadMediaPathsFromDatabase loads media paths from database and configures the scanner
 func loadMediaPathsFromDatabase(db *gorm.DB, mediaScanner *scanner.MediaScanner) {
 	var mediaPaths []models.MediaPath

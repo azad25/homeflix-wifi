@@ -16,10 +16,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"homeflix-backend/internal/services/governor"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -137,8 +139,13 @@ func (e *Engine) Start(ctx context.Context) {
 	if hasCUDA() {
 		e.hwaccel = "cuda"
 	}
-	go e.worker(ctx, true)  // interactive only: hovers never wait behind scans
-	go e.worker(ctx, false) // interactive first, then background
+	go e.worker(ctx, true) // interactive only: hovers never wait behind scans
+	// Background workers: interactive first, then background. The governor
+	// decides how many actually encode at once (about a quarter of the cores
+	// when idle, one or none while someone is watching).
+	for i := 0; i < max(1, runtime.NumCPU()/4); i++ {
+		go e.worker(ctx, false)
+	}
 	go e.janitor(ctx)
 	log.Printf("🎞️ Preview engine ready (720p clips, tonemap=%v, hwdecode=%q)", e.tonemap, e.hwaccel)
 }
@@ -242,6 +249,14 @@ func (e *Engine) worker(ctx context.Context, interactiveOnly bool) {
 		if j == nil {
 			return
 		}
+		class := governor.Background
+		if j.interactive {
+			class = governor.Interactive // a viewer is hovering: highest priority
+		}
+		release, gerr := governor.Default.Acquire(ctx, class)
+		if gerr != nil {
+			return
+		}
 		k := j.src.key()
 		e.mu.Lock()
 		e.running[k] = j.src
@@ -249,6 +264,7 @@ func (e *Engine) worker(ctx context.Context, interactiveOnly bool) {
 
 		t0 := time.Now()
 		path, err := e.make(ctx, &j.src)
+		release()
 
 		e.mu.Lock()
 		delete(e.running, k)

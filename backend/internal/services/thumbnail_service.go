@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"homeflix-backend/internal/services/governor"
 	"log"
 	"math/rand"
 	"os"
@@ -236,6 +237,15 @@ func (wp *WorkerPool) worker(id int) {
 	for {
 		select {
 		case task := <-wp.taskQueue:
+			// Frame grabs and encodes share the host with playback: wait for
+			// a background slot from the governor.
+			release, gerr := governor.Default.Acquire(wp.ctx, governor.Background)
+			if gerr != nil {
+				if task.Callback != nil {
+					task.Callback("", gerr)
+				}
+				return
+			}
 			log.Printf("🔧 Worker %d processing %s task for media %d", id, task.Type, task.MediaID)
 
 			var result string
@@ -258,6 +268,7 @@ func (wp *WorkerPool) worker(id int) {
 				err = fmt.Errorf("unknown task type: %s", task.Type)
 			}
 
+			release()
 			if task.Callback != nil {
 				task.Callback(result, err)
 			}
@@ -1295,7 +1306,7 @@ func generateUniqueFilename(mediaID uint, title string, season *int, episode *in
 		cleanTitle := cleanTitleForFilename(title)
 		return fmt.Sprintf("%s_%d_%s_S%02dE%02d%s", prefix, mediaID, cleanTitle, *season, *episode, extension)
 	}
-	
+
 	// For movies or episodes without season/episode info
 	cleanTitle := cleanTitleForFilename(title)
 	return fmt.Sprintf("%s_%d_%s%s", prefix, mediaID, cleanTitle, extension)
@@ -1304,13 +1315,13 @@ func generateUniqueFilename(mediaID uint, title string, season *int, episode *in
 // generateUniqueFilenameWithTimestamp creates unique filename with timestamp for regeneration
 func generateUniqueFilenameWithTimestamp(mediaID uint, title string, season *int, episode *int, prefix, extension string) string {
 	timestamp := time.Now().Format("20060102_150405") // YYYYMMDD_HHMMSS format
-	
+
 	// For TV series episodes, include season/episode info
 	if season != nil && episode != nil && *season > 0 && *episode > 0 {
 		cleanTitle := cleanTitleForFilename(title)
 		return fmt.Sprintf("%s_%d_%s_S%02dE%02d_%s%s", prefix, mediaID, cleanTitle, *season, *episode, timestamp, extension)
 	}
-	
+
 	// For movies or episodes without season/episode info
 	cleanTitle := cleanTitleForFilename(title)
 	return fmt.Sprintf("%s_%d_%s_%s%s", prefix, mediaID, cleanTitle, timestamp, extension)
@@ -1330,7 +1341,7 @@ func cleanTitleForFilename(title string) string {
 	cleaned = strings.ReplaceAll(cleaned, "|", "")
 	cleaned = strings.ReplaceAll(cleaned, "\"", "")
 	cleaned = strings.ReplaceAll(cleaned, "'", "")
-	
+
 	// Remove year patterns in parentheses for cleaner filenames
 	cleaned = regexp.MustCompile(`\s*\(\d{4}\)\s*`).ReplaceAllString(cleaned, "")
 
@@ -2090,7 +2101,7 @@ func (s *ThumbnailService) trySimplePreviewGeneration(videoPath, previewPath str
 	// Get random timestamp using same logic as Python tasks (30-70% of video)
 	startTime := s.getRandomPreviewTimestamp(videoPath)
 	startTimeStr := s.secondsToTimeString(startTime)
-	
+
 	cmd := utils.NiceCommand("ffmpeg",
 		"-i", videoPath,
 		"-ss", startTimeStr, // Use random timestamp instead of fixed 1 minute
@@ -2114,7 +2125,7 @@ func (s *ThumbnailService) tryShortPreviewGeneration(videoPath, previewPath stri
 	// Get random timestamp using same logic as Python tasks (30-70% of video)
 	startTime := s.getRandomPreviewTimestamp(videoPath)
 	startTimeStr := s.secondsToTimeString(startTime)
-	
+
 	cmd := utils.NiceCommand("ffmpeg",
 		"-i", videoPath,
 		"-ss", startTimeStr, // Use random timestamp instead of fixed 30 seconds
@@ -3027,15 +3038,15 @@ func (s *ThumbnailService) getRandomPreviewTimestamp(videoPath string) int {
 	rand.Seed(time.Now().UnixNano())
 	startPercent := 0.3 + rand.Float64()*0.4 // Random between 0.3 and 0.7
 	randomStartTime := int(float64(duration) * startPercent)
-	
+
 	// Ensure minimum 30 seconds
 	if randomStartTime < 30 {
 		randomStartTime = 30
 	}
-	
-	log.Printf("🎯 Generated random preview timestamp: %ds (%.1f%% of %ds duration)", 
+
+	log.Printf("🎯 Generated random preview timestamp: %ds (%.1f%% of %ds duration)",
 		randomStartTime, startPercent*100, duration)
-	
+
 	return randomStartTime
 }
 
@@ -3046,7 +3057,7 @@ func (s *ThumbnailService) getVideoDurationSeconds(videoPath string) int {
 		"-show_entries", "format=duration",
 		"-of", "csv=p=0",
 		videoPath)
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		log.Printf("⚠️ ffprobe failed for %s: %v", videoPath, err)
