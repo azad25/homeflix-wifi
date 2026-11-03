@@ -1,16 +1,10 @@
 import React from "react";
 
-/** HomeFlix mark: a roof over a TV, the play button cut out of the screen. */
+/** HomeFlix mark: a rounded play button. */
 export function BrandMark({ className = "h-7 w-7", title }: { className?: string; title?: string }) {
   return (
     <svg viewBox="0 0 64 64" className={className} role={title ? "img" : undefined} aria-hidden={title ? undefined : true} aria-label={title}>
-      <path d="M13 26 32 10.5 51 26" fill="none" stroke="currentColor" strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path
-        fill="currentColor"
-        fillRule="evenodd"
-        d="M21 27h22a6 6 0 0 1 6 6v11a6 6 0 0 1-6 6H21a6 6 0 0 1-6-6V33a6 6 0 0 1 6-6Zm7.6 5.4v12.2c0 .9 1 1.5 1.8 1l9.1-6.1c.7-.5.7-1.5 0-2l-9.1-6.1c-.8-.5-1.8.1-1.8 1Z"
-      />
-      <rect x="24" y="53" width="16" height="4" rx="2" fill="currentColor" />
+      <path fill="currentColor" d="M24 17.6v28.8c0 2.4 2.6 3.9 4.7 2.7l24-14.4c2-1.2 2-4.1 0-5.3l-24-14.4c-2.1-1.3-4.7.2-4.7 2.6Z" />
     </svg>
   );
 }
