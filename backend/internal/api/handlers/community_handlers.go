@@ -10,8 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"homeflix-backend/internal/services/telemetry"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -197,42 +195,5 @@ func GetCommunity() gin.HandlerFunc {
 		}
 		c.Header("Cache-Control", "private, max-age=60")
 		c.JSON(http.StatusOK, community.board)
-	}
-}
-
-// GetInstallStats — GET /api/community/installs
-// Project-wide install counts from the install counter (all HomeFlix servers).
-func GetInstallStats() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		s, err := telemetry.GetStats()
-		out := gin.H{"configured": telemetry.URL() != "", "sharing": telemetry.Enabled()}
-		if s != nil {
-			out["installs"], out["active_30d"], out["active_7d"], out["versions"], out["updated"] = s.Installs, s.Active30d, s.Active7d, s.Versions, s.Updated
-		}
-		if err != nil {
-			out["error"] = err.Error()
-		}
-		c.JSON(http.StatusOK, out)
-	}
-}
-
-// GetTelemetry / UpdateTelemetry — GET/PUT /api/admin/telemetry {"enabled":bool}
-func GetTelemetry() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"enabled": telemetry.Enabled(), "configured": telemetry.URL() != "", "version": telemetry.Version()})
-	}
-}
-
-func UpdateTelemetry() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var in struct {
-			Enabled *bool `json:"enabled"`
-		}
-		if c.ShouldBindJSON(&in) != nil || in.Enabled == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "expected {\"enabled\": true|false}"})
-			return
-		}
-		telemetry.SetEnabled(*in.Enabled)
-		c.JSON(http.StatusOK, gin.H{"enabled": telemetry.Enabled()})
 	}
 }

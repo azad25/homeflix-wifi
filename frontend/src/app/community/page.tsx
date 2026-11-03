@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { ThumbsUp, MessageSquare, Lightbulb, Bug, Film, CheckCircle2, Users, Server, Star, ExternalLink, RefreshCw } from "lucide-react";
+import { ThumbsUp, MessageSquare, Lightbulb, Bug, Film, CheckCircle2, Star, ExternalLink, RefreshCw } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { getApiUrl } from "@/lib/api";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -20,7 +20,6 @@ interface Post {
   closed_at?: string;
 }
 interface Board { repo: string; open: Post[]; shipped: Post[]; members: number; stars: number; new_issue: string; error?: string }
-interface Installs { configured: boolean; installs?: number; active_30d?: number; active_7d?: number }
 
 const TABS = [
   { key: "feature", label: "Feature requests", icon: Lightbulb, template: "feature.yml", cta: "Suggest a feature" },
@@ -55,7 +54,6 @@ function StatTile({ icon: Icon, label, value, sub }: { icon: any; label: string;
 export default function CommunityPage() {
   usePageTitle("Community");
   const [board, setBoard] = useState<Board | null>(null);
-  const [installs, setInstalls] = useState<Installs | null>(null);
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("feature");
   const [loading, setLoading] = useState(true);
 
@@ -63,12 +61,8 @@ export default function CommunityPage() {
     setLoading(true);
     try {
       const api = getApiUrl();
-      const [b, i] = await Promise.all([
-        fetch(`${api}/api/community${refresh ? "?refresh=1" : ""}`).then((r) => r.json()).catch(() => null),
-        fetch(`${api}/api/community/installs`).then((r) => r.json()).catch(() => null),
-      ]);
+      const b = await fetch(`${api}/api/community${refresh ? "?refresh=1" : ""}`).then((r) => r.json()).catch(() => null);
       if (b) setBoard(b);
-      if (i) setInstalls(i);
     } finally {
       setLoading(false);
     }
@@ -106,13 +100,8 @@ export default function CommunityPage() {
 
         {/* Platform stats */}
         <section className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatTile
-            icon={Server}
-            label="HomeFlix servers"
-            value={installs?.installs ?? "—"}
-            sub={installs?.configured ? `${installs?.active_30d ?? 0} active this month` : "Counter not set up yet"}
-          />
-          <StatTile icon={Users} label="Active this week" value={installs?.active_7d ?? "—"} sub="Servers seen in 7 days" />
+          <StatTile icon={Lightbulb} label="Feature requests" value={board ? board.open.filter((p) => p.kind === "feature").length : "—"} sub="Open, ranked by votes" />
+          <StatTile icon={CheckCircle2} label="Shipped" value={board?.shipped.length ?? "—"} sub="In the last 60 days" />
           <StatTile icon={MessageSquare} label="Community members" value={board?.members ?? "—"} sub="People who posted" />
           <StatTile icon={Star} label="GitHub stars" value={board?.stars ?? "—"} sub={board?.repo} />
         </section>

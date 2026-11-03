@@ -6,7 +6,6 @@ import (
 	"homeflix-backend/internal/api/handlers"
 	"homeflix-backend/internal/services/governor"
 	"homeflix-backend/internal/services/libgen"
-	"homeflix-backend/internal/services/telemetry"
 	"io"
 	"log"
 	"net/http"
@@ -122,8 +121,6 @@ func main() {
 	// someone is watching or the host is short of CPU or memory.
 	governor.Default.CountStreams(hlsService.ActiveSessions)
 	governor.Default.CountStreams(transcodeService.GetActiveStreams)
-	// Anonymous daily install ping (opt-out: Settings > About or HOMEFLIX_TELEMETRY=off)
-	telemetry.Start()
 	handlers.LoadGovernorSettings()
 	governor.Default.Start(context.Background(), 2*time.Second)
 
