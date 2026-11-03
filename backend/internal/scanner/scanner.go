@@ -577,7 +577,12 @@ func (s *MediaScanner) ScanAndSyncMediaLibrary() error {
 }
 
 // ScanAndSyncMediaLibraryWithProgress performs comprehensive scan and sync with progress display
+// ScanAndSyncMediaLibraryWithProgress is tracked in Settings > Scanner.
 func (s *MediaScanner) ScanAndSyncMediaLibraryWithProgress() error {
+	return Mon.Run("Scan & sync", s.scanAndSyncMediaLibraryWithProgressImpl)
+}
+
+func (s *MediaScanner) scanAndSyncMediaLibraryWithProgressImpl() error {
 	// Create and start progress tracker
 	progress := NewProgressTracker()
 	progress.Start()
@@ -607,7 +612,12 @@ func (s *MediaScanner) ScanAndSyncMediaLibraryWithProgress() error {
 }
 
 // CleanupInvalidEntries removes database entries for media files that no longer exist
+// CleanupInvalidEntries is tracked in Settings > Scanner.
 func (s *MediaScanner) CleanupInvalidEntries() error {
+	return Mon.Run("Database cleanup", s.cleanupInvalidEntriesImpl)
+}
+
+func (s *MediaScanner) cleanupInvalidEntriesImpl() error {
 	return s.CleanupInvalidEntriesWithProgress()
 }
 
@@ -674,7 +684,12 @@ func (s *MediaScanner) CleanupInvalidEntriesWithProgress() error {
 
 // RegenerateAllAssets forces regeneration of all assets for all media in the database
 // This is useful when you want to update thumbnails, previews, and posters without a full scan
+// RegenerateAllAssets is tracked in Settings > Scanner.
 func (s *MediaScanner) RegenerateAllAssets() error {
+	return Mon.Run("Regenerate artwork", s.regenerateAllAssetsImpl)
+}
+
+func (s *MediaScanner) regenerateAllAssetsImpl() error {
 	log.Printf("🎨 Starting asset regeneration for all media...")
 
 	// Get all media from database
@@ -706,7 +721,12 @@ func (s *MediaScanner) RegenerateAllAssets() error {
 
 // RegeneratePreviewClips forces regeneration of preview clips for all media in the database
 // This is specifically for fixing missing preview clips without regenerating other assets
+// RegeneratePreviewClips is tracked in Settings > Scanner.
 func (s *MediaScanner) RegeneratePreviewClips() error {
+	return Mon.Run("Regenerate previews", s.regeneratePreviewClipsImpl)
+}
+
+func (s *MediaScanner) regeneratePreviewClipsImpl() error {
 	log.Printf("🎬 Starting preview clip regeneration for all media...")
 
 	// Get all media from database
@@ -760,7 +780,12 @@ func (s *MediaScanner) RegeneratePreviewClips() error {
 }
 
 // RegeneratePreviewClipsForMissingOnly regenerates preview clips only for media that are completely missing them
+// RegeneratePreviewClipsForMissingOnly is tracked in Settings > Scanner.
 func (s *MediaScanner) RegeneratePreviewClipsForMissingOnly() error {
+	return Mon.Run("Make missing previews", s.regeneratePreviewClipsForMissingOnlyImpl)
+}
+
+func (s *MediaScanner) regeneratePreviewClipsForMissingOnlyImpl() error {
 	log.Printf("🎬 Starting preview clip regeneration for media with missing preview clips...")
 
 	// Get all media from database
@@ -1454,7 +1479,12 @@ func (s *MediaScanner) ProcessSubtitleFile(path string, info os.FileInfo) error 
 	return nil
 }
 
+// ScanMediaLibrary is tracked in Settings > Scanner.
 func (s *MediaScanner) ScanMediaLibrary() error {
+	return Mon.Run("Full scan", s.scanMediaLibraryImpl)
+}
+
+func (s *MediaScanner) scanMediaLibraryImpl() error {
 	// Use the new batch-optimized scanning by default
 	return s.BatchScanMediaLibrary()
 }
@@ -4761,7 +4791,12 @@ func (s *MediaScanner) FixZeroDurations() error {
 }
 
 // IncrementalScan performs a lightning-fast scan that only checks for new/modified files
+// IncrementalScan is tracked in Settings > Scanner.
 func (s *MediaScanner) IncrementalScan() error {
+	return Mon.Run("Incremental scan", s.incrementalScanImpl)
+}
+
+func (s *MediaScanner) incrementalScanImpl() error {
 	log.Printf("⚡ Starting superfast incremental media scan...")
 
 	// Load last scan time from cache or database
@@ -4886,7 +4921,12 @@ func (s *MediaScanner) parallelWalk(root string, walkFn filepath.WalkFunc) error
 }
 
 // SuperfastScan performs the fastest possible scan with minimal processing
+// SuperfastScan is tracked in Settings > Scanner.
 func (s *MediaScanner) SuperfastScan() error {
+	return Mon.Run("Superfast scan", s.superfastScanImpl)
+}
+
+func (s *MediaScanner) superfastScanImpl() error {
 	s.SetStartTime(time.Now())
 	log.Printf("🚀 Starting superfast media library scan at: %s", s.GetMediaPath())
 
@@ -5194,7 +5234,12 @@ func (s *MediaScanner) ProcessSingleFile(path string, info os.FileInfo) error {
 
 // SyncDatabaseWithStorage performs a comprehensive sync between database and file storage
 // This ensures all existing media entries are properly synced and assets are regenerated
+// SyncDatabaseWithStorage is tracked in Settings > Scanner.
 func (s *MediaScanner) SyncDatabaseWithStorage() error {
+	return Mon.Run("Library sync", s.syncDatabaseWithStorageImpl)
+}
+
+func (s *MediaScanner) syncDatabaseWithStorageImpl() error {
 	s.SetStartTime(time.Now())
 	log.Printf("🔄 Starting comprehensive database-storage sync...")
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -197,6 +198,10 @@ func main() {
 
 	// Initialize media scanner with adapted services
 	mediaScanner := scanner.NewMediaScanner(cfg.MediaPath, mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter, notificationServiceAdapter, openSubService)
+	// Settings > Scanner: live counters, and the scanner's lines from the
+	// server log (the same ones the terminal shows).
+	scanner.Mon.SetStatsSource(mediaScanner.GetScanStats)
+	log.SetOutput(io.MultiWriter(os.Stderr, scanner.Mon))
 
 	// Wire subtitle matcher with the concrete media service (the adapter type-assertion inside NewMediaScanner always fails)
 	if openSubService.IsConfigured() {

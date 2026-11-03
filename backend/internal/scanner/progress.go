@@ -77,7 +77,8 @@ func (p *ProgressTracker) Start() {
 	p.startTime = time.Now()
 	p.isRunning = true
 	p.ticker = time.NewTicker(1 * time.Second)
-	
+	Mon.attach(p) // Settings > Scanner reads the live counters
+
 	go p.displayLoop()
 }
 
@@ -94,6 +95,7 @@ func (p *ProgressTracker) Stop() {
 	if p.ticker != nil {
 		p.ticker.Stop()
 	}
+	Mon.detach(p)
 	
 	select {
 	case p.stopChan <- true:
@@ -113,8 +115,12 @@ func (p *ProgressTracker) Stop() {
 // UpdatePhase updates the current phase
 func (p *ProgressTracker) UpdatePhase(phase string) {
 	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	changed := p.currentPhase != phase
 	p.currentPhase = phase
+	p.mutex.Unlock()
+	if changed && phase != "" {
+		Mon.Log("📍 " + phase)
+	}
 }
 
 // UpdateOperation updates the current operation
@@ -289,6 +295,7 @@ func (p *ProgressTracker) printFinalStatus() {
 
 // LogWithProgress logs a message while preserving the progress display
 func (p *ProgressTracker) LogWithProgress(message string) {
+	Mon.Log(message) // printed straight to stdout below, so mirror it
 	p.mutex.RLock()
 	isRunning := p.isRunning
 	height := p.terminalHeight

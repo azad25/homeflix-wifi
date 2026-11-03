@@ -24,6 +24,7 @@ import {
   Radio,
   Sparkles,
   Bell,
+  ScanLine,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -44,6 +45,7 @@ const SECTIONS: Record<SectionId, React.ComponentType<any>> = {
   autodownload: dynamic(() => import("./sections/AutoDownloadSection"), { loading }),
   notifications: dynamic(() => import("./sections/NotificationsSection"), { loading }),
   maintenance: dynamic(() => import("./sections/MaintenanceSection"), { loading }),
+  scanner: dynamic(() => import("./sections/ScannerSection"), { loading }),
   storage: dynamic(() => import("./sections/StorageSection"), { loading }),
   updates: dynamic(() => import("./sections/UpdatesSection"), { loading }),
   server: dynamic(() => import("./sections/ServerSection"), { loading }),
@@ -66,6 +68,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
     title: "Library",
     items: [
       { id: "library", label: "Library Manager", icon: <Library /> },
+      { id: "scanner", label: "Scanner", icon: <ScanLine /> },
       { id: "subtitles", label: "Subtitles", icon: <Captions /> },
       { id: "downloads", label: "Downloads", icon: <Download /> },
       { id: "autodownload", label: "Auto Download", icon: <Sparkles /> },
@@ -133,6 +136,7 @@ function Shell() {
   const [updateBadge, setUpdateBadge] = useState(false);
   const [downloading, setDownloading] = useState(0);
   const [lowStorage, setLowStorage] = useState<any[]>([]);
+  const [scanning, setScanning] = useState(false);
   const [storageDismissed, setStorageDismissed] = useState(false);
 
   useEffect(() => {
@@ -144,6 +148,12 @@ function Shell() {
       .then((d) => setDownloading(Array.isArray(d?.downloads) ? d.downloads.filter((x: any) => x.status === "downloading").length : 0))
       .catch(() => {});
   }, 15000);
+  useVisiblePoll(() => {
+    fetch(`${getApiUrl()}/api/admin/scanner/status`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setScanning(!!d?.current))
+      .catch(() => {});
+  }, 10000);
   useVisiblePoll(() => {
     fetch(`${getApiUrl()}/api/admin/storage/stats`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
@@ -176,8 +186,9 @@ function Shell() {
       updates: updateBadge ? <span className="h-2 w-2 rounded-full bg-info" aria-label="Update available" /> : null,
       downloads: downloading ? <span className="text-[12px] font-semibold tabular-nums text-white/55">{downloading}</span> : null,
       storage: lowStorage.length ? <span className="h-2 w-2 rounded-full bg-danger" aria-label="Low storage" /> : null,
+      scanner: scanning ? <span className="h-2 w-2 animate-pulse rounded-full bg-info" aria-label="Scan running" /> : null,
     }),
-    [updateBadge, downloading, lowStorage.length]
+    [updateBadge, downloading, lowStorage.length, scanning]
   );
 
   const current = NAV.flatMap((g) => g.items).find((i) => i.id === section)!;

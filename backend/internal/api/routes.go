@@ -451,6 +451,12 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/scan/regenerate-previews", scannerHandlers.RegeneratePreviewClips)
 		api.POST("/admin/scan/regenerate-missing-previews", scannerHandlers.RegenerateMissingPreviewClips)
 		api.GET("/admin/scan/stats", scannerHandlers.GetScanStats)
+		// Settings > Scanner: live run, history, activity (the scanner's log
+		// lines) and a library health analysis
+		api.GET("/admin/scanner/status", handlers.ScannerStatus(mediaScanner, watcherService))
+		api.GET("/admin/scanner/events", handlers.ScannerEvents())
+		api.GET("/admin/scanner/stream", handlers.ScannerStream())
+		api.GET("/admin/scanner/analysis", handlers.ScannerAnalysis(db))
 		api.PUT("/admin/scan/config", scannerHandlers.ConfigureScanner)
 		api.PUT("/admin/scan/workers/:workers", handlers.SetMaxWorkers(mediaScanner))
 		api.PUT("/admin/scan/batch-size/:size", handlers.SetBatchSize(mediaScanner))

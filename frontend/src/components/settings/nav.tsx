@@ -5,6 +5,7 @@ import { createContext, useContext } from "react";
 export type SectionId =
   | "dashboard"
   | "library"
+  | "scanner"
   | "subtitles"
   | "downloads"
   | "autodownload"
@@ -28,7 +29,8 @@ export const SECTION_ALIASES: Record<string, SectionId> = {
   general: "playback",
   widgets: "pages",
   analytics: "maintenance",
-  scanning: "maintenance",
+  scanning: "scanner",
+  scan: "scanner",
 };
 
 export const SettingsNavContext = createContext<(id: SectionId) => void>(() => {});
