@@ -395,3 +395,29 @@ func copyTree(src, dst string) error {
 		return f.Close()
 	})
 }
+
+// Abandon removes a download whose release turned out to be dead (no
+// progress for hours) and deletes its partial data. Only the torrent's own
+// folder (<downloads>/<id>, or the drive folder it links to) is deleted, so
+// nothing else can be touched.
+func (tc *TorrentClient) Abandon(id string) error {
+	if id == "" || strings.ContainsAny(id, `/\`) || id == "." || id == ".." {
+		return fmt.Errorf("invalid torrent id %q", id)
+	}
+	tc.mu.Lock()
+	if t, ok := tc.torrents[id]; ok {
+		if err := tc.sess().RemoveTorrent(t.ID()); err != nil {
+			log.Printf("⚠️ Abandon %s: %v", id, err)
+		}
+		delete(tc.torrents, id)
+	}
+	delete(tc.downloads, id)
+	delete(tc.spaceWait, id)
+	tc.mu.Unlock()
+
+	link := filepath.Join(tc.downloadDir, id)
+	if target, err := os.Readlink(link); err == nil && filepath.Base(target) == id {
+		_ = os.RemoveAll(target)
+	}
+	return os.RemoveAll(link)
+}

@@ -36,6 +36,8 @@ type StatusCallback func(torrentID string, status string, progress float64, size
 
 type TorrentClient struct {
 	session            *raintorrent.Session
+	sessMu             sync.RWMutex       // guards session swaps (speed-limit changes)
+	rainCfg            raintorrent.Config // config the session was created with
 	downloads          map[string]*DownloadInfo
 	relocating         map[string]bool   // downloads being moved to another drive
 	spaceWait          map[string]string // paused for lack of space: reason shown as ETA
@@ -125,6 +127,13 @@ func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface, st
 		if val, ok := config["max_downloads"]; ok && val > 0 {
 			maxDownloads = val
 		}
+		// Real speed limits (KB/s), enforced by rain's token buckets
+		if val, ok := config["download_speed_limit_kb"]; ok && val > 0 {
+			cfg.SpeedLimitDownload = int64(val)
+		}
+		if val, ok := config["upload_speed_limit_kb"]; ok && val > 0 {
+			cfg.SpeedLimitUpload = int64(val)
+		}
 	}
 
 	// Apply performance settings
@@ -157,6 +166,7 @@ func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface, st
 
 	tc := &TorrentClient{
 		session:            session,
+		rainCfg:            cfg,
 		downloads:          make(map[string]*DownloadInfo),
 		relocating:         make(map[string]bool),
 		spaceWait:          make(map[string]string),
@@ -164,8 +174,8 @@ func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface, st
 		downloadDir:        downloadDir,
 		mediaScanner:       mediaScanner,
 		statusCallback:     statusCallback,
-		downloadSpeedLimit: 0, // unlimited by default
-		uploadSpeedLimit:   0, // unlimited by default
+		downloadSpeedLimit: cfg.SpeedLimitDownload * 1024,
+		uploadSpeedLimit:   cfg.SpeedLimitUpload * 1024,
 		maxDownloads:       maxDownloads,
 		bandwidthMonitor: &BandwidthMonitor{
 			lastResetTime: time.Now(),
@@ -322,7 +332,7 @@ func extractInfoHashFromMagnet(magnetURI string) string {
 
 func (tc *TorrentClient) findExistingSessionTorrent(torrentID, magnetURI string) *raintorrent.Torrent {
 	if torrentID != "" {
-		if existing := tc.session.GetTorrent(torrentID); existing != nil {
+		if existing := tc.sess().GetTorrent(torrentID); existing != nil {
 			return existing
 		}
 	}
@@ -332,7 +342,7 @@ func (tc *TorrentClient) findExistingSessionTorrent(torrentID, magnetURI string)
 		return nil
 	}
 
-	for _, existing := range tc.session.ListTorrents() {
+	for _, existing := range tc.sess().ListTorrents() {
 		if existing == nil {
 			continue
 		}
@@ -485,7 +495,7 @@ func (tc *TorrentClient) safelyMoveAndRemoveTorrent(torrentID string, torrent *r
 
 	// Now safely remove from Rain session to free the port
 	defer tc.cleanupIncoming(torrent.ID())
-	if err := tc.session.RemoveTorrent(torrent.ID()); err != nil {
+	if err := tc.sess().RemoveTorrent(torrent.ID()); err != nil {
 		log.Printf("⚠️ Failed to remove torrent from session %s: %v", name, err)
 	} else {
 		log.Printf("✅ Successfully moved files and freed port: %s", name)
@@ -1138,7 +1148,7 @@ func (tc *TorrentClient) AddMagnetSized(magnetURI string, sizeHint int64) (*Down
 	}
 
 	// Add stopped, choose the drive, then start (nothing is written before).
-	t, err := tc.session.AddURI(magnetURI, &raintorrent.AddTorrentOptions{Stopped: true})
+	t, err := tc.sess().AddURI(magnetURI, &raintorrent.AddTorrentOptions{Stopped: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to add magnet: %v", err)
 	}
@@ -1207,7 +1217,7 @@ func (tc *TorrentClient) RestoreDownload(torrentID, name, magnetURI, status, sav
 	if existing != nil {
 		t = existing
 	} else {
-		created, err := tc.session.AddURI(magnetURI, nil)
+		created, err := tc.sess().AddURI(magnetURI, nil)
 		if err != nil {
 			return fmt.Errorf("failed to restore magnet: %v", err)
 		}
@@ -1290,14 +1300,14 @@ func (tc *TorrentClient) GetTorrentFilesFromMagnet(magnetURI string, metadataTim
 		return tc.extractTorrentFiles(existing, metadataTimeout)
 	}
 
-	tempTorrent, err := tc.session.AddURI(trimmedMagnet, nil)
+	tempTorrent, err := tc.sess().AddURI(trimmedMagnet, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add magnet for preview: %v", err)
 	}
 
 	defer func() {
 		_ = tempTorrent.Stop()
-		_ = tc.session.RemoveTorrent(tempTorrent.ID())
+		_ = tc.sess().RemoveTorrent(tempTorrent.ID())
 	}()
 
 	if err := tempTorrent.Start(); err != nil {
@@ -1439,7 +1449,7 @@ func (tc *TorrentClient) RemoveDownloadWithFiles(id string, deleteFiles bool) er
 		torrentPath = tc.getActualTorrentPath(torrent, download.Name)
 
 		// Remove torrent from session to free the port
-		err := tc.session.RemoveTorrent(torrent.ID())
+		err := tc.sess().RemoveTorrent(torrent.ID())
 		if err != nil {
 			log.Printf("⚠️ Failed to remove torrent from session: %v", err)
 		} else {
@@ -1719,87 +1729,6 @@ func (tc *TorrentClient) triggerMediaScan(download *DownloadInfo) {
 }
 
 // startBandwidthThrottling starts monitoring and throttling bandwidth usage
-func (tc *TorrentClient) startBandwidthThrottling() {
-	ticker := time.NewTicker(5 * time.Second) // Check every 5 seconds instead of every second
-	defer ticker.Stop()
-
-	for range ticker.C {
-		tc.mu.RLock()
-		downloadLimit := tc.downloadSpeedLimit
-		uploadLimit := tc.uploadSpeedLimit
-		tc.mu.RUnlock()
-
-		// If no limits are set, skip throttling
-		if downloadLimit == 0 && uploadLimit == 0 {
-			continue
-		}
-
-		tc.throttleBandwidth(downloadLimit, uploadLimit)
-	}
-}
-
-// throttleBandwidth implements application-level bandwidth throttling
-func (tc *TorrentClient) throttleBandwidth(downloadLimit, uploadLimit int64) {
-	tc.bandwidthMonitor.mu.Lock()
-	defer tc.bandwidthMonitor.mu.Unlock()
-
-	now := time.Now()
-
-	// Reset counters every second
-	if now.Sub(tc.bandwidthMonitor.lastResetTime) >= time.Second {
-		tc.bandwidthMonitor.downloadBytesUsed = 0
-		tc.bandwidthMonitor.uploadBytesUsed = 0
-		tc.bandwidthMonitor.lastResetTime = now
-		return
-	}
-
-	// Get current bandwidth usage from all torrents
-	var totalDownloadRate, totalUploadRate int64
-
-	tc.mu.RLock()
-	for _, downloadInfo := range tc.downloads {
-		if downloadInfo.Status == "downloading" {
-			totalDownloadRate += downloadInfo.DownloadRate
-			totalUploadRate += downloadInfo.UploadRate
-		}
-	}
-	tc.mu.RUnlock()
-
-	// Calculate if we need to throttle (only if significantly over limit to avoid constant throttling)
-	var shouldThrottle bool
-	var throttleReason string
-
-	if downloadLimit > 0 && totalDownloadRate > int64(float64(downloadLimit)*1.2) { // 20% tolerance
-		shouldThrottle = true
-		throttleReason = fmt.Sprintf("download rate %s/s exceeds limit %s/s",
-			formatSpeed(totalDownloadRate), formatSpeed(downloadLimit))
-	}
-
-	if uploadLimit > 0 && totalUploadRate > int64(float64(uploadLimit)*1.2) { // 20% tolerance
-		shouldThrottle = true
-		if throttleReason != "" {
-			throttleReason += " and "
-		}
-		throttleReason += fmt.Sprintf("upload rate %s/s exceeds limit %s/s",
-			formatSpeed(totalUploadRate), formatSpeed(uploadLimit))
-	}
-
-	if shouldThrottle {
-		// Implement gentler throttling by just logging and introducing small delays
-		// instead of stopping/starting torrents which can reset downloads
-		log.Printf("🚦 Bandwidth limit reached: %s", throttleReason)
-
-		// Instead of stopping torrents, just introduce a small delay to reduce overall throughput
-		// This is much safer and won't reset downloads
-		time.Sleep(500 * time.Millisecond)
-
-		// Log current usage for monitoring
-		log.Printf("📊 Current usage: Download %s/s (limit: %s/s), Upload %s/s (limit: %s/s)",
-			formatSpeed(totalDownloadRate), formatSpeed(downloadLimit),
-			formatSpeed(totalUploadRate), formatSpeed(uploadLimit))
-	}
-}
-
 // GetBandwidthStats returns current bandwidth usage statistics
 func (tc *TorrentClient) GetBandwidthStats() map[string]interface{} {
 	tc.mu.RLock()
@@ -1912,33 +1841,81 @@ func (tc *TorrentClient) calculateSimilarity(str1, str2 string) float64 {
 	return float64(matchingWords) / float64(len(words1))
 }
 
-// Since Rain torrent library doesn't support runtime speed limits,
-// we implement application-level bandwidth throttling
+// sess returns the current rain session.
+func (tc *TorrentClient) sess() *raintorrent.Session {
+	tc.sessMu.RLock()
+	defer tc.sessMu.RUnlock()
+	return tc.session
+}
+
+// SetSpeedLimits applies download/upload limits in bytes per second
+// (0 = unlimited). Rain enforces limits with token buckets that are fixed
+// when its session starts, so a change restarts the session: torrents are
+// persisted in rain's database and resume on their own, exactly as after a
+// server restart. (This used to only log, and sleep in a goroutine that was
+// started again on every change; nothing was actually limited.)
 func (tc *TorrentClient) SetSpeedLimits(downloadLimit, uploadLimit int64) {
+	dlKB, ulKB := downloadLimit/1024, uploadLimit/1024
+	if dlKB < 0 {
+		dlKB = 0
+	}
+	if ulKB < 0 {
+		ulKB = 0
+	}
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-
-	// Store the limits for use in bandwidth throttling
-	tc.downloadSpeedLimit = downloadLimit
-	tc.uploadSpeedLimit = uploadLimit
-
-	log.Printf("⚡ Speed limits configured - Download: %s/s, Upload: %s/s",
-		formatSpeed(downloadLimit), formatSpeed(uploadLimit))
-
-	if downloadLimit > 0 || uploadLimit > 0 {
-		log.Printf("🚀 Gentle bandwidth monitoring enabled (won't reset downloads)")
-		log.Printf("   • Download limit: %s/s (with 20%% tolerance)", formatSpeed(downloadLimit))
-		log.Printf("   • Upload limit: %s/s (with 20%% tolerance)", formatSpeed(uploadLimit))
-		log.Printf("   • Monitoring interval: 5 seconds")
-
-		// Start bandwidth monitoring and throttling
-		go tc.startBandwidthThrottling()
-	} else {
-		log.Printf("🚀 No speed limits set - unlimited bandwidth")
+	tc.downloadSpeedLimit, tc.uploadSpeedLimit = dlKB*1024, ulKB*1024
+	if dlKB == tc.rainCfg.SpeedLimitDownload && ulKB == tc.rainCfg.SpeedLimitUpload {
+		return
 	}
+	cfg := tc.rainCfg
+	cfg.SpeedLimitDownload, cfg.SpeedLimitUpload = dlKB, ulKB
+	if err := tc.restartSessionLocked(cfg); err != nil {
+		log.Printf("⚠️ Couldn't apply speed limits: %v", err)
+		return
+	}
+	log.Printf("⚡ Speed limits now enforced - Download: %s, Upload: %s",
+		limitLabel(tc.downloadSpeedLimit), limitLabel(tc.uploadSpeedLimit))
+}
 
-	log.Printf("💡 Note: For system-level bandwidth control, consider:")
-	log.Printf("   • Linux tc (traffic control)")
-	log.Printf("   • Router QoS settings")
-	log.Printf("   • Network-level bandwidth limiting")
+func limitLabel(b int64) string {
+	if b <= 0 {
+		return "unlimited"
+	}
+	return formatSpeed(b)
+}
+
+// restartSessionLocked swaps the rain session for one with cfg and re-links
+// every download to its torrent in the new session. tc.mu must be held.
+func (tc *TorrentClient) restartSessionLocked(cfg raintorrent.Config) error {
+	tc.sessMu.Lock()
+	defer tc.sessMu.Unlock()
+	if err := tc.session.Close(); err != nil {
+		log.Printf("⚠️ Closing torrent session: %v", err)
+	}
+	next, err := raintorrent.NewSession(cfg)
+	if err != nil {
+		// Put the previous configuration back so downloads keep going.
+		prev, perr := raintorrent.NewSession(tc.rainCfg)
+		if perr != nil {
+			return fmt.Errorf("new session: %v; restoring previous: %v", err, perr)
+		}
+		tc.session = prev
+		tc.relinkLocked()
+		return err
+	}
+	tc.session, tc.rainCfg = next, cfg
+	tc.relinkLocked()
+	return nil
+}
+
+// relinkLocked points every download at its torrent in the current session.
+func (tc *TorrentClient) relinkLocked() {
+	for id := range tc.torrents {
+		if t := tc.session.GetTorrent(id); t != nil {
+			tc.torrents[id] = t
+		} else {
+			delete(tc.torrents, id)
+		}
+	}
 }

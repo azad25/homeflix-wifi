@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"homeflix-backend/internal/services/governor"
 	"log"
 	"os"
 	"path/filepath"
@@ -54,6 +55,9 @@ type Item struct {
 	Attempts       int       `json:"attempts"`
 	NextAttemptAt  time.Time `json:"next_attempt_at"`
 	Rejected       string    `json:"-"` // magnets that failed, one per line
+	// Stall detection: last seen progress and when it last moved.
+	LastProgress float64    `json:"-"`
+	ProgressAt   *time.Time `json:"-"`
 	SpaceNotified  bool      `json:"-"`
 	// Scheduling: when the title can be downloaded (TMDB release / season
 	// finale), and an optional user-chosen earliest date.
@@ -142,6 +146,16 @@ type Torrents interface {
 	SearchReal(query string) ([]torrent.SearchResult, error)
 	Enqueue(magnet, title, mediaType string, tmdbID int, quality string, sizeHint int64) (*torrent.DownloadInfo, error)
 }
+
+// Abandoner is implemented by torrent backends that can drop a dead
+// download and its partial data.
+type Abandoner interface {
+	Abandon(torrentID string) error
+}
+
+// StallAfter: a download with no progress for this long is a dead release;
+// it is dropped and another release is tried.
+var StallAfter = 6 * time.Hour
 
 // Notify sends a user-visible notification (kind: queued, started,
 // completed, failed, space).
@@ -392,6 +406,9 @@ func (s *Service) Pass(ctx context.Context) {
 				s.retryLater(it, "The download failed - trying another release", time.Minute)
 			}
 		default:
+			if s.stalled(it, &td) {
+				continue
+			}
 			running++
 		}
 	}
@@ -414,6 +431,11 @@ func (s *Service) Pass(ctx context.Context) {
 			continue // not available yet
 		}
 		if running >= st.MaxConcurrent {
+			continue
+		}
+		// Host short of memory or overloaded (see governor): don't add a new
+		// torrent now; it starts on a later check.
+		if governor.Default.Mode() == governor.ModeCritical {
 			continue
 		}
 		if s.process(&next[i], st) {
@@ -512,6 +534,40 @@ func (it *Item) display() string {
 		return fmt.Sprintf("%s (%d)", it.Title, it.Year)
 	}
 	return it.Title
+}
+
+// stalled tracks a running download's progress. After StallAfter without
+// any progress (while it is actually trying to download, not paused for
+// space) the release is rejected and dropped, and another one is tried.
+func (s *Service) stalled(it *Item, td *models.TorrentDownload) bool {
+	now := s.now()
+	moved := td.Progress > it.LastProgress+0.05
+	// Time paused (e.g. waiting for disk space) doesn't count as stalled.
+	if it.ProgressAt == nil || moved || td.Status != "downloading" {
+		it.LastProgress, it.ProgressAt = td.Progress, &now
+		s.db.Model(it).Updates(map[string]interface{}{"last_progress": it.LastProgress, "progress_at": it.ProgressAt})
+		return false
+	}
+	if now.Sub(*it.ProgressAt) < StallAfter {
+		return false
+	}
+	ab, ok := s.torrents.(Abandoner)
+	if !ok {
+		return false
+	}
+	if err := ab.Abandon(it.TorrentID); err != nil {
+		log.Printf("⚠️ Auto Download: dropping stalled %s: %v", it.display(), err)
+	}
+	it.Rejected += td.MagnetURI + "\n"
+	it.ProgressAt, it.LastProgress = nil, 0
+	if strings.Count(it.Rejected, "\n") >= 3 {
+		it.Status, it.Message = StatusFailed, "No release made progress (3 tried)"
+		s.db.Save(it)
+		s.notify("failed", "Couldn't download "+it.display(), "Three releases stopped making progress. You can retry it from My List.", it.TMDBID, it.MediaType)
+		return true
+	}
+	s.retryLater(it, fmt.Sprintf("Stuck at %.0f%% for %s - trying another release", td.Progress, StallAfter), time.Minute)
+	return true
 }
 
 func (s *Service) retryLater(it *Item, msg string, after time.Duration) {

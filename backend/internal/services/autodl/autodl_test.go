@@ -83,8 +83,9 @@ func TestParseSize(t *testing.T) {
 type fakeTorrents struct {
 	db      *gorm.DB
 	results []torrent.SearchResult
-	noIdx   bool
-	started []string
+	noIdx     bool
+	started   []string
+	abandoned []string
 }
 
 func (f *fakeTorrents) SearchReal(q string) ([]torrent.SearchResult, error) {
@@ -314,5 +315,51 @@ func TestDownloadTargetsSkipUnpluggedAndCloud(t *testing.T) {
 	got := storage.DownloadTargets(db)
 	if len(got) != 2 || got[0] != b || got[1] != a {
 		t.Fatalf("targets %v, want [external, primary] by priority", got)
+	}
+}
+
+func (f *fakeTorrents) Abandon(id string) error {
+	f.abandoned = append(f.abandoned, id)
+	f.db.Where("torrent_id = ?", id).Delete(&models.TorrentDownload{})
+	return nil
+}
+
+func TestStalledReleaseIsReplaced(t *testing.T) {
+	s, ft, _ := newTestService(t, 100*GiB)
+	now := time.Now()
+	s.now = func() time.Time { return now }
+	ft.results = []torrent.SearchResult{r("Heat.1995.1080p.WEBRip", 80, 2*GiB), r("Heat.1995.1080p.BluRay", 40, 2*GiB)}
+	s.Add(AddRequest{TMDBID: 949, MediaType: "movie", Title: "Heat", Year: 1995})
+	s.Pass(context.Background())
+	first := s.List()[0].TorrentID
+	s.db.Model(&models.TorrentDownload{}).Where("torrent_id = ?", first).Update("progress", 12.0)
+
+	s.Pass(context.Background()) // records 12%
+	// Paused for 10 hours: not a stall.
+	s.db.Model(&models.TorrentDownload{}).Where("torrent_id = ?", first).Update("status", "paused")
+	now = now.Add(10 * time.Hour)
+	s.Pass(context.Background())
+	if len(ft.abandoned) != 0 {
+		t.Fatal("paused download treated as stalled")
+	}
+	// Downloading again but stuck at 12% for 7 hours.
+	s.db.Model(&models.TorrentDownload{}).Where("torrent_id = ?", first).Update("status", "downloading")
+	s.Pass(context.Background())
+	now = now.Add(5 * time.Hour)
+	s.Pass(context.Background())
+	if len(ft.abandoned) != 0 {
+		t.Fatal("dropped before StallAfter")
+	}
+	now = now.Add(2 * time.Hour)
+	s.Pass(context.Background())
+	if len(ft.abandoned) != 1 || ft.abandoned[0] != first {
+		t.Fatalf("stalled release not dropped: %v", ft.abandoned)
+	}
+	// Retried with the other release.
+	now = now.Add(2 * time.Minute)
+	s.Pass(context.Background())
+	it := s.List()[0]
+	if it.Status != StatusDownloading || it.TorrentID == first || len(ft.started) != 2 {
+		t.Fatalf("not retried with another release: %+v started=%v", it.Item, ft.started)
 	}
 }

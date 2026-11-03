@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"homeflix-backend/internal/services/autodl"
 	"fmt"
 	"log"
 	"net/http"
@@ -119,6 +120,10 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 		"port_range_end":       config.PortRangeEnd,
 		"max_open_files":       config.MaxOpenFiles,
 		"max_downloads":        config.MaxDownloads,
+		// Saved speed limits (KB/s): enforced from startup, not only after
+		// the settings are saved again.
+		"download_speed_limit_kb": int(config.DownloadSpeedLimit),
+		"upload_speed_limit_kb":   int(config.UploadSpeedLimit),
 	}
 	
 	// Create a pointer to hold the notification service that will be set after handler creation
@@ -1361,3 +1366,17 @@ func (h *TorrentHandler) GetBandwidthStats(c *gin.Context) {
 	
 	c.JSON(http.StatusOK, combinedStats)
 }
+
+// Abandon drops a dead download (Auto Download found no progress for hours)
+// and its partial data, so another release can be tried.
+func (h *TorrentHandler) Abandon(torrentID string) error {
+	if h.client == nil {
+		return fmt.Errorf("torrent client not available")
+	}
+	err := h.client.Abandon(torrentID)
+	h.db.Where("torrent_id = ?", torrentID).Delete(&models.TorrentDownload{})
+	return err
+}
+
+// Auto Download drops stalled releases through Abandon.
+var _ autodl.Abandoner = (*TorrentHandler)(nil)
