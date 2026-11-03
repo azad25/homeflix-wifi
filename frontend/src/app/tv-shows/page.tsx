@@ -12,6 +12,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import TVHero, { TVHeroSlide } from "@/components/tv/TVHero";
 import TVShelf from "@/components/tv/TVShelf";
 import TMDBShelf from "@/components/tv/TMDBShelf";
+import ComingSoonShowcase from "@/components/comingsoon/ComingSoonShowcase";
 import TVArtworkCard from "@/components/tv/TVArtworkCard";
 import { TVGridSkeleton, TVPageHeader } from "@/components/tv/TVPage";
 import { mediaYouTubeKey } from "@/lib/mediaArt";
@@ -249,6 +250,9 @@ export default function TVShowsPage() {
         ))}
 
         {/* Beyond the library: what's on TV right now (hover plays the trailer) */}
+        <ErrorBoundary>
+          <ComingSoonShowcase type="tv" />
+        </ErrorBoundary>
         <TMDBShelf name="trending-tv" title="Trending Shows" subtitle="This week on TMDB" />
         <TMDBShelf name="on-the-air" />
         <TMDBShelf name="top-rated-tv" />

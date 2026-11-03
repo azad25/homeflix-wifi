@@ -24,6 +24,9 @@ network, and can download, subtitle and preview titles for you.
 - **Downloads**: one-click torrent downloads through Jackett. Downloads go to
   the drive with room, move if a drive fills up, and pause when every drive
   is full.
+- **Coming Soon**: the 10 most anticipated upcoming movies and series,
+  with trailers kept on the server and a Notify Me button that downloads
+  them on release day.
 - **Auto Download**: get titles from My List as soon as they're released, with
   a quality profile you choose.
 - **Live TV**: free-to-air channels with health checks, a channel guide and
@@ -108,6 +111,7 @@ build fails.
 ## Docs
 
 - [Live TV and the TV app API](docs/LIVE_TV.md)
+- [Coming Soon trailers and Notify Me](docs/COMING_SOON.md)
 - [Casting protocol](docs/TV_CAST_PROTOCOL.md)
 - [TV app updates](docs/TV_APP_UPDATES.md)
 - [Recommendations](docs/PERSONALISATION.md)

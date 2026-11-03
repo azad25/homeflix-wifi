@@ -6,6 +6,7 @@ import (
 	"homeflix-backend/internal/services/autodl"
 	"homeflix-backend/internal/services/buzz"
 	"homeflix-backend/internal/services/cloud"
+	"homeflix-backend/internal/services/comingsoon"
 	"homeflix-backend/internal/services/livetv"
 	"log"
 	"time"
@@ -543,6 +544,21 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.DELETE("/autodownload/:id", handlers.RemoveAutoDownload(autoDL))
 		api.POST("/autodownload/:id/retry", handlers.RetryAutoDownload(autoDL))
 		api.POST("/autodownload/run", handlers.RunAutoDownloads(autoDL))
+
+		// Coming Soon: the 10 most anticipated upcoming movies and series, with
+		// trailers downloaded for smooth playback (docs/COMING_SOON.md).
+		if tmdbService != nil {
+			comingSoon := comingsoon.New(tmdbService)
+			go comingSoon.Run(context.Background())
+			api.GET("/comingsoon", handlers.GetComingSoon(comingSoon, autoDL))
+			api.GET("/comingsoon/video/:name", handlers.ComingSoonVideo(comingSoon))
+			api.HEAD("/comingsoon/video/:name", handlers.ComingSoonVideo(comingSoon))
+			api.POST("/comingsoon/notify", handlers.NotifyComingSoon(comingSoon, autoDL))
+			api.DELETE("/comingsoon/notify/:type/:id", handlers.UnnotifyComingSoon(autoDL))
+			api.GET("/admin/comingsoon", handlers.ComingSoonAdmin(comingSoon))
+			api.POST("/admin/comingsoon/refresh", handlers.RefreshComingSoon(comingSoon))
+			api.PUT("/admin/comingsoon/settings", handlers.UpdateComingSoonSettings(comingSoon))
+		}
 		api.GET("/autodownload/settings", handlers.GetAutoDownloadSettings(autoDL))
 		api.PUT("/autodownload/settings", handlers.UpdateAutoDownloadSettings(autoDL))
 

@@ -181,3 +181,8 @@ func (t *TMDBService) Trailer(mediaType string, id int) (string, error) {
 	shelfCache.Store(key, shelfCacheEntry{at: time.Now(), key: best})
 	return best, nil
 }
+
+// Get calls a TMDB v3 endpoint and decodes the JSON response into out.
+func (t *TMDBService) Get(path string, q url.Values, out interface{}) error {
+	return t.tmdbGet(path, q, out)
+}

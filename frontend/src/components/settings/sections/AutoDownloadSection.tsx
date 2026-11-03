@@ -6,6 +6,7 @@ import { getApiUrl } from "@/lib/api";
 import { useLog } from "../activity";
 import { useSettingsNav } from "../nav";
 import { Badge, Button, Field, Group, Notice, Row, SectionHeader, Toggle, inputClass } from "../ui";
+import ComingSoonAdmin from "./ComingSoonAdmin";
 
 interface S {
   enabled: boolean;
@@ -192,6 +193,8 @@ export default function AutoDownloadSection() {
           </Field>
         </div>
       </Group>
+
+      <ComingSoonAdmin />
 
       <Group title="How It Works" padded>
         <ul className="space-y-2 text-[13px] leading-relaxed text-white/60">

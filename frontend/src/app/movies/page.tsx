@@ -10,6 +10,7 @@ import { WidgetManagementButton } from '@/components/widgets';
 import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 import ErrorBoundary from "@/components/ErrorBoundary";
 import TMDBShelf from "@/components/tv/TMDBShelf";
+import ComingSoonShowcase from "@/components/comingsoon/ComingSoonShowcase";
 
 export default function MoviesPage() {
   usePageTitle('Movies');
@@ -41,6 +42,9 @@ export default function MoviesPage() {
 
       {/* Movies beyond the library (hover plays the trailer) */}
       <div className="relative z-10 space-y-10 pt-24 md:space-y-12">
+        <ErrorBoundary>
+          <ComingSoonShowcase type="movie" />
+        </ErrorBoundary>
         <TMDBShelf name="trending-movies" subtitle="This week on TMDB" />
         <TMDBShelf name="now-playing" />
       </div>

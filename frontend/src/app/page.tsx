@@ -12,6 +12,7 @@ import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ForYouShelves from "@/components/tv/ForYouShelves";
 import TMDBShelf from "@/components/tv/TMDBShelf";
+import ComingSoonShowcase from "@/components/comingsoon/ComingSoonShowcase";
 
 // Memoized components for better performance
 const MemoizedHomeflixHero = React.memo(HomeflixHero);
@@ -124,6 +125,9 @@ export default function Home() {
 
       {/* What everyone's watching (TMDB); hover plays the trailer */}
       <div className="relative z-10 space-y-10 pt-10 md:space-y-12">
+        <ErrorBoundary>
+          <ComingSoonShowcase />
+        </ErrorBoundary>
         <TMDBShelf name="trending" subtitle="Movies and shows everyone's watching" />
         <TMDBShelf name="now-playing" />
       </div>
