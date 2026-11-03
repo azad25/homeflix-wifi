@@ -241,6 +241,16 @@ func TestFavoritesComeFirstAndPersist(t *testing.T) {
 	if got := ids(s.Channels(Filter{ByNumber: true})); got != "a.us#1,b.us*#2,c.us#3,d.us*#4" {
 		t.Fatalf("by number %s", got)
 	}
+	// TV app numbering: favourites 1..k, the rest after, so sorting by number keeps them on top
+	if got := ids(s.Channels(Filter{FavoritesNumbered: true})); got != "b.us*#1,d.us*#2,a.us#3,c.us#4" {
+		t.Fatalf("tv numbering %s", got)
+	}
+	if got := ids(s.Channels(Filter{FavoritesNumbered: true, Country: "US", Query: "c"})); got != "c.us#4" {
+		t.Fatalf("tv numbering filtered %s", got)
+	}
+	if n := s.NumberOf("a.us", true); n != 3 {
+		t.Fatalf("tv play number %d", n)
+	}
 	// /play still reports the lineup number
 	if ch, _, _, _ := s.Play(context.Background(), "d.us"); ch == nil || ch.Number != 4 {
 		t.Fatalf("play number %+v", ch)

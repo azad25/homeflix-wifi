@@ -23,7 +23,7 @@ func ListLiveTVChannels(s *livetv.Service) gin.HandlerFunc {
 			"enabled": true,
 			// Favourites first (marked "favorite": true), then the rest of the
 			// lineup; ?order=number keeps plain channel-number order.
-			"channels":   s.Channels(livetv.Filter{Country: c.Query("country"), Category: c.Query("category"), Query: c.Query("q"), ByNumber: c.Query("order") == "number"}),
+			"channels":   s.Channels(livetv.Filter{Country: c.Query("country"), Category: c.Query("category"), Query: c.Query("q"), ByNumber: c.Query("order") == "number", FavoritesNumbered: favoritesNumbered(c)}),
 			"favorites":  s.Favorites(),
 			"countries":  countries,
 			"categories": categories,
@@ -31,6 +31,19 @@ func ListLiveTVChannels(s *livetv.Service) gin.HandlerFunc {
 			"syncing":    st.Syncing,
 		})
 	}
+}
+
+// favoritesNumbered: the TV app sorts channels by number, so for it (and for
+// ?order=favorites) favourites are numbered 1..k and the rest follow, which
+// puts them at the top of its list. ?order=number always keeps lineup numbers.
+func favoritesNumbered(c *gin.Context) bool {
+	switch c.Query("order") {
+	case "number":
+		return false
+	case "favorites":
+		return true
+	}
+	return isTVAppClient(c)
 }
 
 // PlayLiveTVChannel — GET /api/livetv/channels/:id/play
@@ -44,6 +57,9 @@ func PlayLiveTVChannel(s *livetv.Service) gin.HandlerFunc {
 		case err != nil:
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
+			if favoritesNumbered(c) {
+				ch.Number = s.NumberOf(ch.ID, true) // same number the channel list gave
+			}
 			c.Header("Cache-Control", "no-store")
 			c.JSON(http.StatusOK, gin.H{"channel": ch, "urls": urls, "youtube_id": youtubeID})
 		}

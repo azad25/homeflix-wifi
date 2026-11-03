@@ -53,7 +53,13 @@ Optional query: `country=BD`, `category=news`, `q=somoy`.
 `number` is the position in the full lineup (not the filtered list), so
 "channel 12" is the same channel whatever filter is active. **Favourites come
 first** (in channel-number order), then the rest, sorted by country, then name.
-Add `order=number` for plain channel-number order. If `enabled` is false, hide
+Add `order=number` for plain channel-number order.
+
+**TV app numbering:** the TV app sorts channels by `number`. So for TV clients
+(detected by user agent), or with `order=favorites`, favourites are numbered
+1, 2, 3… and the other channels follow. Their own sort then keeps favourites on
+top, and `/play` reports the same numbers. Numbers shift when favourites
+change. `order=number` always returns the plain lineup numbers. If `enabled` is false, hide
 Live TV.
 
 ### Favourites

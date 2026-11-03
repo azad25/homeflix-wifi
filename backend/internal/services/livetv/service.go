@@ -205,6 +205,10 @@ type Filter struct {
 	Query    string
 	// ByNumber keeps plain lineup order (no favourites on top).
 	ByNumber bool
+	// FavoritesNumbered numbers favourites 1..k and the rest after them. The
+	// TV app sorts channels by number, so this is how favourites reach the
+	// top of its list without an app update.
+	FavoritesNumbered bool
 }
 
 // Channels lists the lineup (numbered in a stable order, like a real TV).
@@ -216,13 +220,31 @@ func (s *Service) Channels(f Filter) []ChannelView {
 	}
 	q := strings.ToLower(strings.TrimSpace(f.Query))
 	out := make([]ChannelView, 0, 256)
-	n := 0
+	favCount := 0
+	if f.FavoritesNumbered {
+		for _, c := range s.catalog.Channels {
+			if !(s.settings.HideOffline && c.Status() == "offline") && s.isFavorite(c.ID) {
+				favCount++
+			}
+		}
+	}
+	n, favN, restN := 0, 0, 0
 	for _, c := range s.catalog.Channels {
 		status := c.Status()
 		if s.settings.HideOffline && status == "offline" {
 			continue
 		}
 		n++
+		num := n
+		if f.FavoritesNumbered {
+			if s.isFavorite(c.ID) {
+				favN++
+				num = favN
+			} else {
+				restN++
+				num = favCount + restN
+			}
+		}
 		if f.Country != "" && !strings.EqualFold(c.Country, f.Country) {
 			continue
 		}
@@ -232,7 +254,7 @@ func (s *Service) Channels(f Filter) []ChannelView {
 		if q != "" && !strings.Contains(strings.ToLower(c.Name), q) {
 			continue
 		}
-		out = append(out, ChannelView{ID: c.ID, Name: c.Name, Country: c.Country, Categories: c.Categories, Logo: c.Logo, Status: status, Quality: c.Quality(), Number: n, Favorite: s.isFavorite(c.ID)})
+		out = append(out, ChannelView{ID: c.ID, Name: c.Name, Country: c.Country, Categories: c.Categories, Logo: c.Logo, Status: status, Quality: c.Quality(), Number: num, Favorite: s.isFavorite(c.ID)})
 	}
 	if !f.ByNumber {
 		favoritesFirst(out)
@@ -241,8 +263,12 @@ func (s *Service) Channels(f Filter) []ChannelView {
 }
 
 // numberOf is the channel's number in the full lineup (the same one Channels reports).
-func (s *Service) numberOf(id string) int {
-	for _, v := range s.Channels(Filter{ByNumber: true}) {
+func (s *Service) numberOf(id string) int { return s.NumberOf(id, false) }
+
+// NumberOf is the channel's number as Channels reports it, with or without
+// favourites numbered first.
+func (s *Service) NumberOf(id string, favoritesNumbered bool) int {
+	for _, v := range s.Channels(Filter{ByNumber: true, FavoritesNumbered: favoritesNumbered}) {
 		if v.ID == id {
 			return v.Number
 		}
@@ -347,7 +373,7 @@ func (s *Service) Play(ctx context.Context, id string) (*ChannelView, []string, 
 	if len(urls) == 0 && youtubeID == "" {
 		return nil, nil, "", ErrNoStream
 	}
-	v := ChannelView{ID: c.ID, Name: c.Name, Country: c.Country, Categories: c.Categories, Logo: c.Logo, Status: c.Status(), Quality: c.Quality(), Number: s.numberOf(c.ID)}
+	v := ChannelView{ID: c.ID, Name: c.Name, Country: c.Country, Categories: c.Categories, Logo: c.Logo, Status: c.Status(), Quality: c.Quality(), Number: s.numberOf(c.ID), Favorite: s.isFavorite(c.ID)}
 	return &v, urls, youtubeID, nil
 }
 
