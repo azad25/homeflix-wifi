@@ -1311,7 +1311,9 @@ func (s *MediaService) GetTVShows() ([]models.Media, error) {
 func (s *MediaService) GetSeasonsBySeriesID(seriesID uint) ([]map[string]interface{}, error) {
 	var episodes []models.Media
 	err := s.db.Preload("Genres").Preload("Subtitles").
-		Where("series_id = ? OR id = ?", seriesID, seriesID).
+		// Only this show's episodes. (Matching "id = seriesID" as well pulled in an
+		// unrelated episode whose media id happened to equal the series id.)
+		Where("series_id = ? OR (id = ? AND series_id IS NULL)", seriesID, seriesID).
 		Where("type = ?", "episode").
 		Order("COALESCE(season_number, season, 1), COALESCE(episode_number, episode, 1)").
 		Find(&episodes).Error
@@ -1351,7 +1353,9 @@ func (s *MediaService) GetSeasonsBySeriesID(seriesID uint) ([]map[string]interfa
 func (s *MediaService) GetEpisodesBySeriesAndSeason(seriesID uint, seasonNumber int) ([]models.Media, error) {
 	var episodes []models.Media
 	err := s.db.Preload("Genres").Preload("Subtitles").
-		Where("series_id = ? OR id = ?", seriesID, seriesID).
+		// Only this show's episodes. (Matching "id = seriesID" as well pulled in an
+		// unrelated episode whose media id happened to equal the series id.)
+		Where("series_id = ? OR (id = ? AND series_id IS NULL)", seriesID, seriesID).
 		Where("type = ?", "episode").
 		Where("COALESCE(season_number, season, 1) = ?", seasonNumber).
 		Order("COALESCE(episode_number, episode, 1)").
