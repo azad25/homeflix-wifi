@@ -2240,6 +2240,14 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 			log.Printf("🔍 Found existing media by %s: %s", searchResult.FoundBy, media.Title)
 		}
 
+		// Unchanged file processed recently: incomplete metadata/assets are
+		// retried at most once a day instead of on every scan (unmatched
+		// titles used to be fully re-probed and re-looked-up each time).
+		unchanged := !pathChanged && media.FileSize == info.Size() && media.UpdatedAt.After(info.ModTime())
+		if unchanged && time.Since(media.UpdatedAt) < rescanRetryAfter {
+			return nil
+		}
+
 		// Skip processing only if everything is perfect
 		if !needsMetadataUpdate && !needsAssetRegeneration && !pathChanged && !needsTitleFix {
 			log.Printf("✅ Media already exists with complete data and assets, skipping: %s", path)
@@ -7087,6 +7095,9 @@ func (s *MediaScanner) extractMetadataFromPath(path string) *FileMetadata {
 
 	// Extract year from filename
 	metadata.Year = s.extractYear(filename)
+	if metadata.Type == "movie" {
+		metadata.Title = tidyMovieTitle(metadata.Title)
+	}
 
 	// Extract genres from path
 	metadata.Genres = s.extractGenresFromPath(path, metadata.Title)
@@ -7471,4 +7482,26 @@ func probeSlot() func() {
 		return func() {}
 	}
 	return release
+}
+
+// rescanRetryAfter: how long an unchanged file with incomplete metadata or
+// assets waits before a scan retries it.
+var rescanRetryAfter = 24 * time.Hour
+
+var trailingYear = regexp.MustCompile(`^(.*\S)\s*[\(\[\{]?\s*\b(19|20)\d{2}\b.*$`)
+
+// tidyMovieTitle drops a release year (and anything after it) left in a
+// cleaned movie title: "Alien 2017" -> "Alien", "Arrival (1990) [" ->
+// "Arrival". A year that is the whole title or its start ("1917",
+// "2001 A Space Odyssey") is kept.
+func tidyMovieTitle(t string) string {
+	m := trailingYear.FindStringSubmatch(strings.TrimSpace(t))
+	if m == nil {
+		return t
+	}
+	out := strings.TrimRight(strings.TrimSpace(m[1]), " -_.([{")
+	if out == "" {
+		return t
+	}
+	return out
 }
