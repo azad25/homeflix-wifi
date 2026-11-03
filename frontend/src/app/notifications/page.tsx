@@ -6,7 +6,7 @@ import { getApiUrl } from '@/lib/api';
 import { Notification } from '@/types/notifications';
 import NotificationTile from '@/components/notifications/NotificationTile';
 import { useRouter } from 'next/navigation';
-import EventsPanel, { EventNotification, isEventNotification } from '@/components/notifications/EventsPanel';
+import { EventNotification, isEventNotification } from '@/components/notifications/EventsPanel';
 import BuzzHub from '@/components/buzz/BuzzHub';
 import Navbar from '@/components/Navbar';
 import '@/styles/notifications.css';
@@ -944,13 +944,11 @@ const NotificationsPage: React.FC = () => {
       <Navbar />
       {/* Live mosaic: tiles keep morphing and playing trailers */}
       <section
-        className={`relative overflow-hidden bg-black transition-[height] duration-500 ${notifications.length === 0 && feedLoaded ? 'h-[240px]' : 'h-[68vh] min-h-[440px]'}`}
+        className={`relative overflow-hidden bg-black transition-[height] duration-500 ${notifications.length === 0 && feedLoaded ? 'h-[220px]' : 'h-[60vh] min-h-[420px] max-h-[720px]'}`}
         style={{ marginTop: '64px' }}
         aria-label="Live activity"
       >
         <div className="absolute inset-0 bg-black" />
-
-        <EventsPanel events={events} />
 
         {/* Notification Tiles - Fill entire viewport */}
         <div className="absolute inset-0 z-20">
@@ -1021,15 +1019,16 @@ const NotificationsPage: React.FC = () => {
         </div>
 
         {/* Title over a fade into the page below */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 h-40 bg-gradient-to-t from-black via-black/70 to-transparent" />
-        <div className="pointer-events-none absolute bottom-6 left-0 z-40 tv-gutter">
-          <h1 className="flex items-center gap-3 text-[34px] font-bold tracking-[-0.03em] text-white md:text-5xl">
-            What&apos;s New
-            <span className="flex items-center gap-1.5 rounded-full bg-[#ff453a]/15 px-2.5 py-1 text-[12px] font-bold tracking-normal text-[#ff6961]">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-[#ff453a]" /> LIVE
-            </span>
-          </h1>
-          <p className="mt-1 text-[15px] text-white/60">Your library, trailers, news about the stars you watch and server updates.</p>
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-40 h-24 bg-gradient-to-b from-black/80 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 h-56 bg-gradient-to-t from-black via-black/75 to-transparent" />
+        <div className="pointer-events-none absolute bottom-7 left-0 z-40 tv-gutter">
+          <span className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-[#ff453a] px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-white shadow-[0_4px_20px_rgba(255,69,58,0.4)]">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> Live
+          </span>
+          <h1 className="text-[40px] font-bold leading-none tracking-[-0.035em] text-white md:text-[64px]">What&apos;s New</h1>
+          <p className="mt-2.5 max-w-xl text-[15px] leading-relaxed text-white/65 md:text-[17px]">
+            New in your library, trailers, news about the stars you watch, and what your server is up to.
+          </p>
         </div>
 
         {/* Empty state */}
@@ -1053,7 +1052,7 @@ const NotificationsPage: React.FC = () => {
         )}
       </section>
 
-      <BuzzHub />
+      <BuzzHub events={events} />
     </div>
   );
 };

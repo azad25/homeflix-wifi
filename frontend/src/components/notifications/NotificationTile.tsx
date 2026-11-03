@@ -781,7 +781,7 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
           <div
             className="text-xs font-medium"
             style={{
-              color: '#ef4444',
+              color: 'rgba(255,255,255,0.7)',
               textShadow: '0 1px 3px rgba(0,0,0,0.9), 0 2px 6px rgba(0,0,0,0.8)',
             }}
           >
@@ -829,14 +829,13 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
             className={`${sizeConfig.title}`}
             style={{
               display: 'block', // Always visible initially
-              color: sizeConfig.useWhiteText ? '#ffffff' : '#e50914', // White for small tiles, Netflix red for others
+              color: '#ffffff',
+              letterSpacing: '-0.02em',
               fontWeight: 'bold',
               zIndex: 100,
               position: 'relative',
               lineHeight: size === 'small' ? '1.2' : '1.3',
-              textShadow: sizeConfig.useWhiteText 
-                ? '0 2px 4px rgba(0,0,0,1), 0 4px 8px rgba(0,0,0,0.9), 1px 1px 0px rgba(0,0,0,1)' // Dark shadow for white text
-                : '0 2px 4px rgba(255,255,255,0.3), 0 4px 8px rgba(255,255,255,0.2), 0 0 20px rgba(0,0,0,0.8), 1px 1px 0px rgba(0,0,0,1)', // White glow + dark shadow for red text
+              textShadow: '0 2px 12px rgba(0,0,0,0.7), 0 1px 3px rgba(0,0,0,0.9)',
             }}
           >
             {notification.title}

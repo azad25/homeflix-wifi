@@ -23,6 +23,7 @@ export default function AutoDownloadButton({
   posterPath,
   seasons,
   className = "",
+  compact = false,
 }: {
   tmdbId: number;
   mediaType: "movie" | "tv";
@@ -31,6 +32,8 @@ export default function AutoDownloadButton({
   posterPath?: string;
   seasons?: number;
   className?: string;
+  /** Round icon-only button (e.g. over a poster). */
+  compact?: boolean;
 }) {
   const navigate = useNavigate();
   const [status, setStatus] = useState<string | null>(null);
@@ -102,6 +105,28 @@ export default function AutoDownloadButton({
   ) : (
     <Sparkles className="h-4 w-4" />
   );
+
+  if (compact) {
+    const done = status === "completed" || status === "in_library";
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          queue();
+        }}
+        disabled={busy}
+        aria-label={`${label}: ${title}`}
+        title={status ? `${label} - see the download queue` : "Auto Download when it's released"}
+        className={`flex h-9 w-9 items-center justify-center rounded-full shadow-lg backdrop-blur-xl transition-all duration-200 hover:scale-110 [&>svg]:h-[18px] [&>svg]:w-[18px] ${
+          done ? "bg-[#30d158] text-black" : status ? "bg-white text-black" : "bg-black/55 text-white ring-1 ring-white/25 hover:bg-white hover:text-black"
+        } ${className}`}
+      >
+        {icon}
+      </button>
+    );
+  }
 
   return (
     <button
