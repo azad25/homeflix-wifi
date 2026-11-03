@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMonitorRunsEventsAndHistory(t *testing.T) {
@@ -75,7 +76,6 @@ func TestMonitorRunsEventsAndHistory(t *testing.T) {
 	if len(m2.History()) != 1 || m2.nextID != h[0].ID {
 		t.Fatalf("history not persisted: %+v", m2.History())
 	}
-	_ = filepath.Join
 }
 
 func TestMonitorUsesScannerCountersWithoutTracker(t *testing.T) {
@@ -111,5 +111,48 @@ func TestMonitorKeepsTrackerCountsAfterDetach(t *testing.T) {
 	})
 	if h := m.History()[0]; h.Processed != 5 || h.Total != 5 {
 		t.Fatalf("final counters lost: %+v", h)
+	}
+}
+
+// Regression: Start/Stop used to call the monitor while holding the
+// tracker's lock, and the monitor reads trackers under its own lock, so
+// polling the status during a scan could deadlock the server.
+func TestMonitorNoDeadlockWithTrackers(t *testing.T) {
+	Mon.mu.Lock()
+	Mon.file = filepath.Join(t.TempDir(), "history.json") // keep test history out of the package dir
+	Mon.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		Mon.Run("Full scan", func() error {
+			for i := 0; i < 300; i++ {
+				p := NewProgressTracker()
+				p.Start()
+				p.SetTotalFiles(10)
+				p.IncrementProcessed()
+				p.UpdatePhase(fmt.Sprintf("phase %d", i%3))
+				p.Stop()
+			}
+			return nil
+		})
+	}()
+	stop, polled := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(polled)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				Mon.Current()
+			}
+		}
+	}()
+	select {
+	case <-done:
+		close(stop)
+		<-polled
+	case <-time.After(20 * time.Second):
+		t.Fatal("deadlock between ProgressTracker and the monitor")
 	}
 }

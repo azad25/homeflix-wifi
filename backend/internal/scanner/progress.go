@@ -68,35 +68,37 @@ func getTerminalSize() (int, int) {
 // Start begins the progress display
 func (p *ProgressTracker) Start() {
 	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	
 	if p.isRunning {
+		p.mutex.Unlock()
 		return
 	}
-	
 	p.startTime = time.Now()
 	p.isRunning = true
 	p.ticker = time.NewTicker(1 * time.Second)
-	Mon.attach(p) // Settings > Scanner reads the live counters
+	p.mutex.Unlock()
 
+	// Settings > Scanner reads the live counters. Never call the monitor
+	// while holding p.mutex: the monitor locks itself, then the tracker.
+	Mon.attach(p)
 	go p.displayLoop()
 }
 
 // Stop ends the progress display
 func (p *ProgressTracker) Stop() {
 	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	
 	if !p.isRunning {
+		p.mutex.Unlock()
 		return
 	}
-	
 	p.isRunning = false
 	if p.ticker != nil {
 		p.ticker.Stop()
 	}
-	Mon.detach(p)
-	
+	p.mutex.Unlock()
+	Mon.detach(p) // outside p.mutex (see Start)
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
 	select {
 	case p.stopChan <- true:
 	default:
