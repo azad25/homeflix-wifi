@@ -4005,6 +4005,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   />
                 </div>
 
+                {/* Close button (the intro can be closed too, not just skipped) */}
+                <button
+                  onClick={handleClose}
+                  className="absolute right-5 top-5 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-xl transition hover:bg-white/20 md:right-8 md:top-8"
+                  type="button"
+                  aria-label="Close player"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+
                 {/* Skip button */}
                 <button
                   onClick={() => setShowIntroAnimation(false)}
@@ -4017,60 +4027,56 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             )}
           </AnimatePresence>
 
-          {/* HOMEFLIX Seeking/Buffering Overlay */}
+          {/* Loading / buffering / seeking overlay */}
           <AnimatePresence>
             {(isLoading || isBuffering || isSeeking) && !showIntroAnimation && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-40"
+                transition={{ duration: 0.25 }}
+                className={`pointer-events-none absolute inset-0 z-40 flex items-center justify-center ${isLoading ? "bg-black" : "bg-black/45"}`}
               >
-                {/* HOMEFLIX branded seeking screen */}
-                <div className="flex flex-col items-center">
-                  {/* HOMEFLIX Logo */}
-                  <h2
-                    className="text-4xl md:text-5xl font-bold tracking-widest mb-6"
-                    style={{
-                      fontFamily: "'Bebas Neue', 'Impact', sans-serif",
-                      color: '#E50914',
-                      letterSpacing: '0.15em',
-                      textShadow: '0 0 20px rgba(229, 9, 20, 0.5)',
-                    }}
-                  >
-                    HOMEFLIX
-                  </h2>
+                {/* First load: the title's artwork, softly blurred, behind the loader */}
+                {isLoading && (media.tmdb_backdrop_url || media.backdrop_path) && (
+                  <div
+                    className="absolute inset-0 scale-110 bg-cover bg-center opacity-35 blur-2xl"
+                    style={{ backgroundImage: `url(${media.tmdb_backdrop_url || `${getApiUrl()}${media.backdrop_path?.startsWith('/') ? '' : '/api/backdrops/'}${media.backdrop_path}`})` }}
+                  />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/70" />
 
-                  {/* Animated loading bars */}
-                  <div className="flex gap-1 mb-4">
-                    {[...Array(5)].map((_, i) => (
-                      <div
-                        key={i}
-                        className="w-1.5 bg-red-600 rounded-full"
-                        style={{
-                          height: '24px',
-                          animation: 'homeflix-bar-bounce 1s ease-in-out infinite',
-                          animationDelay: `${i * 0.1}s`,
-                        }}
-                      />
-                    ))}
+                <div className="relative flex flex-col items-center px-6 text-center">
+                  {/* Ring spinner */}
+                  <div className="relative h-16 w-16">
+                    <div className="absolute inset-0 rounded-full border-[3px] border-white/15" />
+                    <div className="absolute inset-0 animate-spin rounded-full border-[3px] border-transparent border-t-white [animation-duration:0.8s]" />
                   </div>
-
-                  {/* Status text */}
-                  {/* <p className="text-white/60 text-sm tracking-wider">
-                    {isSeeking ? 'Seeking...' : isLoading ? 'Loading...' : 'Buffering...'}
-                  </p> */}
+                  {isLoading && (
+                    <>
+                      <p className="mt-6 max-w-md truncate text-xl font-bold tracking-[-0.01em] text-white md:text-2xl">
+                        {media.title}
+                      </p>
+                      {media.type === 'episode' && (media.season_number || media.episode_number) ? (
+                        <p className="mt-1 text-sm text-white/55">
+                          S{media.season_number || 1} · E{media.episode_number || 1}{media.episode_title ? ` · ${media.episode_title}` : ''}
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                  <p className="mt-3 text-[13px] font-medium tracking-wide text-white/50">
+                    {isSeeking ? 'Seeking…' : isLoading ? 'Getting your video ready…' : 'Buffering…'}
+                  </p>
                 </div>
 
-                {/* Close button */}
+                {/* Close: always clickable, even while loading (Esc works too) */}
                 <button
                   onClick={handleClose}
-                  className="absolute top-8 right-8 text-white hover:text-red-500 transition-colors p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-red-500/50 z-50"
+                  className="pointer-events-auto absolute right-5 top-5 z-50 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-xl transition hover:bg-white/20 md:right-8 md:top-8"
                   type="button"
-                  aria-label="Close"
+                  aria-label="Close player"
                 >
-                  <X className="w-6 h-6" />
+                  <X className="h-5 w-5" />
                 </button>
               </motion.div>
             )}
