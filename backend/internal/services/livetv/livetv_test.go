@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -204,5 +205,53 @@ func TestPlayReportsTheLineupNumber(t *testing.T) {
 	}
 	if want == 0 || ch.Number != want {
 		t.Fatalf("play number = %d, lineup number = %d", ch.Number, want)
+	}
+}
+
+func TestFavoritesComeFirstAndPersist(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOMEFLIX_LIVETV_DIR", dir)
+	s := NewService()
+	ok := true
+	mk := func(id, name string) *Channel {
+		return &Channel{ID: id, Name: name, Country: "US", Streams: []Stream{{URL: "https://example.com/" + id + ".m3u8", OK: &ok}}}
+	}
+	s.setCatalog(&Catalog{Channels: []*Channel{mk("a.us", "A"), mk("b.us", "B"), mk("c.us", "C"), mk("d.us", "D")}})
+	if _, err := s.SetFavorites([]string{"nope.us"}, true); err == nil {
+		t.Fatal("unknown channel accepted as favourite")
+	}
+	if _, err := s.SetFavorites([]string{"d.us", "b.us", "b.us"}, true); err != nil {
+		t.Fatal(err)
+	}
+	ids := func(l []ChannelView) string {
+		var x []string
+		for _, v := range l {
+			id := v.ID
+			if v.Favorite {
+				id += "*"
+			}
+			x = append(x, fmt.Sprintf("%s#%d", id, v.Number))
+		}
+		return strings.Join(x, ",")
+	}
+	// favourites on top (by number), rest below; numbers unchanged
+	if got := ids(s.Channels(Filter{})); got != "b.us*#2,d.us*#4,a.us#1,c.us#3" {
+		t.Fatalf("lineup %s", got)
+	}
+	if got := ids(s.Channels(Filter{ByNumber: true})); got != "a.us#1,b.us*#2,c.us#3,d.us*#4" {
+		t.Fatalf("by number %s", got)
+	}
+	// /play still reports the lineup number
+	if ch, _, _, _ := s.Play(context.Background(), "d.us"); ch == nil || ch.Number != 4 {
+		t.Fatalf("play number %+v", ch)
+	}
+	// persisted across restarts
+	s2 := NewService()
+	if f := s2.Favorites(); len(f) != 2 || f[0] != "d.us" || f[1] != "b.us" {
+		t.Fatalf("not saved: %v", f)
+	}
+	s2.SetFavorites([]string{"d.us"}, false)
+	if f := s2.Favorites(); len(f) != 1 || f[0] != "b.us" {
+		t.Fatalf("remove: %v", f)
 	}
 }

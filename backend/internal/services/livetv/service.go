@@ -62,6 +62,8 @@ type Service struct {
 	progress atomic.Int64 // streams checked in the current pass
 	total    atomic.Int64
 	kick     chan struct{}
+
+	favs favorites
 }
 
 // NewService uses $HOMEFLIX_LIVETV_DIR or ./data/livetv.
@@ -82,6 +84,7 @@ func NewService() *Service {
 	if err := s.store.load("catalog.json", &cat); err == nil {
 		s.setCatalog(&cat)
 	}
+	s.loadFavorites()
 	s.proxy = NewProxy(s.secret())
 	s.lastErr.Store("")
 	return s
@@ -192,6 +195,7 @@ type ChannelView struct {
 	Status     string   `json:"status"`
 	Quality    string   `json:"quality,omitempty"`
 	Number     int      `json:"number"`
+	Favorite   bool     `json:"favorite,omitempty"`
 }
 
 // Filter for Channels.
@@ -199,6 +203,8 @@ type Filter struct {
 	Country  string
 	Category string
 	Query    string
+	// ByNumber keeps plain lineup order (no favourites on top).
+	ByNumber bool
 }
 
 // Channels lists the lineup (numbered in a stable order, like a real TV).
@@ -226,14 +232,17 @@ func (s *Service) Channels(f Filter) []ChannelView {
 		if q != "" && !strings.Contains(strings.ToLower(c.Name), q) {
 			continue
 		}
-		out = append(out, ChannelView{ID: c.ID, Name: c.Name, Country: c.Country, Categories: c.Categories, Logo: c.Logo, Status: status, Quality: c.Quality(), Number: n})
+		out = append(out, ChannelView{ID: c.ID, Name: c.Name, Country: c.Country, Categories: c.Categories, Logo: c.Logo, Status: status, Quality: c.Quality(), Number: n, Favorite: s.isFavorite(c.ID)})
+	}
+	if !f.ByNumber {
+		favoritesFirst(out)
 	}
 	return out
 }
 
 // numberOf is the channel's number in the full lineup (the same one Channels reports).
 func (s *Service) numberOf(id string) int {
-	for _, v := range s.Channels(Filter{}) {
+	for _, v := range s.Channels(Filter{ByNumber: true}) {
 		if v.ID == id {
 			return v.Number
 		}

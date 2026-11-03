@@ -59,17 +59,39 @@ export default function LiveTVPage() {
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    try {
-      setFavs(JSON.parse(readLS(LS_FAVS) || "[]"));
-    } catch {
-      /* ignore */
-    }
     let alive = true;
     const load = async () => {
       try {
-        const res = await fetch(`${getApiUrl()}/api/livetv/channels`);
+        // The web guide keeps channel-number order and has its own Favorites
+        // filter; the TV app gets favourites first from the plain endpoint.
+        const res = await fetch(`${getApiUrl()}/api/livetv/channels?order=number`, { cache: "no-store" });
         const d = await res.json();
         if (!alive) return;
+        let serverFavs: string[] = d.favorites || [];
+        // Favourites used to live only in this browser: move them to the
+        // server once, so the TV app sees them too.
+        let local: string[] = [];
+        try {
+          local = JSON.parse(readLS(LS_FAVS) || "[]");
+        } catch {
+          /* ignore */
+        }
+        const missing = local.filter((id) => !serverFavs.includes(id));
+        if (missing.length) {
+          const r = await fetch(`${getApiUrl()}/api/livetv/favorites`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: missing }),
+          }).catch(() => null);
+          if (r?.ok) {
+            serverFavs = (await r.json()).favorites || serverFavs;
+            writeLS(LS_FAVS, "[]");
+          }
+        } else if (local.length) {
+          writeLS(LS_FAVS, "[]");
+        }
+        if (!alive) return;
+        setFavs(serverFavs);
         setEnabled(d.enabled !== false);
         setSyncing(!!d.syncing);
         setAll(d.channels || []);
@@ -111,12 +133,14 @@ export default function LiveTVPage() {
     writeLS(LS_LAST, ch.id);
   }, []);
 
+  // Favourites are saved on the server (shared with the TV app).
   const toggleFav = (id: string) => {
-    setFavs((f) => {
-      const next = f.includes(id) ? f.filter((x) => x !== id) : [...f, id];
-      writeLS(LS_FAVS, JSON.stringify(next));
-      return next;
-    });
+    const on = !favs.includes(id);
+    setFavs((f) => (on ? [...f, id] : f.filter((x) => x !== id))); // optimistic
+    fetch(`${getApiUrl()}/api/livetv/favorites/${encodeURIComponent(id)}`, { method: on ? "PUT" : "DELETE" })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setFavs(d.favorites || []))
+      .catch(() => setFavs((f) => (on ? f.filter((x) => x !== id) : [...f, id]))); // roll back
   };
 
   // Keep the playing channel in view in the guide.

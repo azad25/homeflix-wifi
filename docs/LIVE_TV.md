@@ -38,9 +38,11 @@ Optional query: `country=BD`, `category=news`, `q=somoy`.
       "logo": "https://…/somoy.png",
       "status": "online",          // online | offline | unknown
       "quality": "720p",
-      "number": 12                 // stable channel number for the remote
+      "number": 12,                // stable channel number for the remote
+      "favorite": true             // only present on favourites
     }
   ],
+  "favorites": ["SomoyTV.bd"],
   "countries":  [{ "code": "US", "count": 812 }],
   "categories": [{ "code": "news", "count": 230 }],
   "updated_at": "2026-11-02T20:26:30Z",
@@ -49,8 +51,20 @@ Optional query: `country=BD`, `category=news`, `q=somoy`.
 ```
 
 `number` is the position in the full lineup (not the filtered list), so
-"channel 12" is the same channel whatever filter is active. Sort is by
-country, then name. If `enabled` is false, hide Live TV.
+"channel 12" is the same channel whatever filter is active. **Favourites come
+first** (in channel-number order), then the rest, sorted by country, then name.
+Add `order=number` for plain channel-number order. If `enabled` is false, hide
+Live TV.
+
+### Favourites
+
+Favourites are stored on the server and shared by every device (the web Live TV
+page's star sets them).
+
+- `GET /api/livetv/favorites` → `{ "favorites": ["id", …] }`
+- `PUT /api/livetv/favorites/:id` adds one (404 if the channel is unknown).
+- `DELETE /api/livetv/favorites/:id` removes one.
+- `POST /api/livetv/favorites` with `{ "ids": [...] }` adds several.
 
 ### `GET /api/livetv/channels/:id/play`
 

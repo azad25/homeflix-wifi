@@ -20,8 +20,11 @@ func ListLiveTVChannels(s *livetv.Service) gin.HandlerFunc {
 		countries, categories := s.Facets()
 		c.Header("Cache-Control", "private, max-age=30")
 		c.JSON(http.StatusOK, gin.H{
-			"enabled":    true,
-			"channels":   s.Channels(livetv.Filter{Country: c.Query("country"), Category: c.Query("category"), Query: c.Query("q")}),
+			"enabled": true,
+			// Favourites first (marked "favorite": true), then the rest of the
+			// lineup; ?order=number keeps plain channel-number order.
+			"channels":   s.Channels(livetv.Filter{Country: c.Query("country"), Category: c.Query("category"), Query: c.Query("q"), ByNumber: c.Query("order") == "number"}),
+			"favorites":  s.Favorites(),
 			"countries":  countries,
 			"categories": categories,
 			"updated_at": st.UpdatedAt,
@@ -91,5 +94,57 @@ func CheckLiveTV(s *livetv.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		s.CheckNow()
 		c.JSON(http.StatusAccepted, gin.H{"status": s.Status()})
+	}
+}
+
+// LiveTVFavorites — GET /api/livetv/favorites
+func LiveTVFavorites(s *livetv.Service) gin.HandlerFunc {
+	return func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"favorites": s.Favorites()}) }
+}
+
+func setFavorites(c *gin.Context, s *livetv.Service, ids []string, on bool) {
+	favs, err := s.SetFavorites(ids, on)
+	switch {
+	case errors.Is(err, livetv.ErrNoChannel):
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	case err != nil:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	default:
+		c.JSON(http.StatusOK, gin.H{"favorites": favs})
+	}
+}
+
+// AddLiveTVFavorite — PUT /api/livetv/favorites/:id
+func AddLiveTVFavorite(s *livetv.Service) gin.HandlerFunc {
+	return func(c *gin.Context) { setFavorites(c, s, []string{c.Param("id")}, true) }
+}
+
+// RemoveLiveTVFavorite — DELETE /api/livetv/favorites/:id
+func RemoveLiveTVFavorite(s *livetv.Service) gin.HandlerFunc {
+	return func(c *gin.Context) { setFavorites(c, s, []string{c.Param("id")}, false) }
+}
+
+// MergeLiveTVFavorites — POST /api/livetv/favorites {"ids": [...]}: adds the
+// ones the server knows (used to bring over favourites saved in a browser).
+func MergeLiveTVFavorites(s *livetv.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var in struct {
+			IDs []string `json:"ids"`
+		}
+		if err := c.ShouldBindJSON(&in); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		known := map[string]bool{}
+		for _, ch := range s.Channels(livetv.Filter{ByNumber: true}) {
+			known[ch.ID] = true
+		}
+		var ids []string
+		for _, id := range in.IDs {
+			if known[id] {
+				ids = append(ids, id)
+			}
+		}
+		setFavorites(c, s, ids, true)
 	}
 }
