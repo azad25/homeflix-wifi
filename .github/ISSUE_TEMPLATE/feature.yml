@@ -1,0 +1,11 @@
+name: Feature request
+description: Suggest something new for HomeFlix. Others vote with 👍.
+title: "[Feature] "
+labels: ["feature"]
+body:
+  - type: textarea
+    attributes:
+      label: What would you like?
+      description: What should HomeFlix do, and why would it help you?
+    validations:
+      required: true

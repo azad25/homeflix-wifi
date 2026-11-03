@@ -3,7 +3,7 @@
 import BrandLogo from "@/components/brand/BrandLogo";
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Bell, User, Menu, X, Film, Tv, Music, List, Compass, Settings, HelpCircle, Info } from "lucide-react";
+import { Search, Bell, User, Menu, X, Film, Tv, Music, List, Compass, Settings, HelpCircle, Info, Users } from "lucide-react";
 import { usePathname } from "next/navigation";
 import NavigationLink from "./NavigationLink";
 import { useNavigate } from "@/hooks/useNavigate";
@@ -657,6 +657,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                       { name: 'Library', icon: Compass, href: '/browse' },
                       { name: 'Trailers', icon: Film, href: '/trailers' },
                       { name: 'Providers', icon: Tv, href: '/providers' },
+                      { name: 'Community', icon: Users, href: '/community' },
                       { name: 'Music', icon: Music, href: '/music' },
                       { name: 'Settings', icon: Settings, href: '/settings' },
                       { name: 'About', icon: Info, href: '/about' }

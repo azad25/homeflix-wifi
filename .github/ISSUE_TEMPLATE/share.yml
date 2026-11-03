@@ -1,0 +1,13 @@
+name: Share a movie or show
+description: Recommend a title to the HomeFlix community.
+title: "[Share] "
+labels: ["share"]
+body:
+  - type: textarea
+    attributes:
+      label: Why should people watch it?
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: TMDB or IMDb link (optional)

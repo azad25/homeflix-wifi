@@ -1,0 +1,26 @@
+# When a release is published, close every issue its notes mention
+# ("Fixes #12", "#12", ...) with a "Shipped in <tag>" comment, so the
+# HomeFlix community board moves them from open to Shipped automatically.
+name: Close issues shipped in a release
+on:
+  release:
+    types: [published]
+permissions:
+  issues: write
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close referenced issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+          NOTES: ${{ github.event.release.body }}
+        run: |
+          for n in $(printf '%s' "$NOTES" | grep -oE '#[0-9]+' | tr -d '#' | sort -un); do
+            state=$(gh issue view "$n" -R "$REPO" --json state -q .state 2>/dev/null || true)
+            if [ "$state" = "OPEN" ]; then
+              gh issue close "$n" -R "$REPO" --reason completed --comment "Shipped in $TAG 🎉"
+            fi
+          done

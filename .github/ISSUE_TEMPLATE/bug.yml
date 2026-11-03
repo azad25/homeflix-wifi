@@ -1,0 +1,15 @@
+name: Issue
+description: Something isn't working. Others vote with 👍 if it affects them too.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: HomeFlix version
+      placeholder: "5.5.1"
