@@ -72,6 +72,10 @@ type Service struct {
 	dir  string // data dir; videos in dir/videos
 	now  func() time.Time
 
+	tool *tool
+	// InLibrary reports a title (tv: that season) the library already has.
+	InLibrary func(mediaType string, tmdbID, season int) bool
+
 	mu      sync.Mutex
 	st      state
 	working string // key of the entry being processed
@@ -89,7 +93,7 @@ func New(tmdb TMDB) *Service {
 	if dir == "" {
 		dir = "./data/comingsoon"
 	}
-	s := &Service{tmdb: tmdb, dir: dir, now: time.Now, kick: make(chan struct{}, 1)}
+	s := &Service{tmdb: tmdb, dir: dir, now: time.Now, kick: make(chan struct{}, 1), tool: newTool(dir)}
 	s.st = state{Settings: Settings{Enabled: true, BudgetBytes: DefaultBudget}, Entries: map[string]*Entry{}}
 	if b, err := os.ReadFile(filepath.Join(dir, "state.json")); err == nil {
 		_ = json.Unmarshal(b, &s.st)
@@ -108,7 +112,7 @@ func New(tmdb TMDB) *Service {
 	}
 	_ = os.MkdirAll(s.videoDir(), 0o755)
 	s.downloadFn = func(ctx context.Context, id, dir string) (string, error) {
-		bin := ytdlpPath()
+		bin, _ := s.tool.path()
 		if bin == "" {
 			return "", errNoTool
 		}
@@ -149,6 +153,7 @@ func (s *Service) logf(format string, a ...interface{}) {
 // through the download queue in between.
 func (s *Service) Run(ctx context.Context) {
 	go s.worker(ctx)
+	go s.keepToolUpdated(ctx)
 	select {
 	case <-ctx.Done():
 		return
@@ -170,6 +175,49 @@ func (s *Service) Run(ctx context.Context) {
 	}
 }
 
+// keepToolUpdated installs yt-dlp on start (when enabled) and updates it weekly.
+func (s *Service) keepToolUpdated(ctx context.Context) {
+	for {
+		if s.Settings().Enabled {
+			s.UpdateTool(ctx, false)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(24 * time.Hour): // Ensure only re-downloads after 7 days
+		}
+	}
+}
+
+// UpdateTool installs or updates the managed yt-dlp; titles that were waiting
+// for a downloader are queued again.
+func (s *Service) UpdateTool(ctx context.Context, force bool) error {
+	err := s.tool.Ensure(ctx, force)
+	if err != nil {
+		s.logf("yt-dlp: %v", err)
+		return err
+	}
+	if bin, src := s.tool.path(); bin != "" {
+		s.mu.Lock()
+		n := 0
+		for _, e := range s.st.Entries {
+			if e.State == StateNoTool {
+				e.State, e.Error = StatePending, ""
+				n++
+			}
+		}
+		if n > 0 {
+			s.saveLocked()
+		}
+		s.mu.Unlock()
+		if n > 0 || force {
+			s.logf("yt-dlp ready (%s, %s)", ytdlpVersion(bin), src)
+		}
+		s.Kick()
+	}
+	return nil
+}
+
 func (s *Service) Kick() {
 	select {
 	case s.kick <- struct{}{}:
@@ -181,8 +229,9 @@ func (s *Service) Kick() {
 // videos), and queues downloads.
 func (s *Service) Refresh(ctx context.Context) error {
 	now := s.now()
-	movies, err1 := PickMovies(s.tmdb, now, PerType)
-	series, err2 := PickSeries(s.tmdb, now, PerType)
+	skip := func(c Candidate) bool { return s.InLibrary != nil && s.InLibrary(c.MediaType, c.TMDBID, c.Season) }
+	movies, err1 := PickMovies(s.tmdb, now, PerType, skip)
+	series, err2 := PickSeries(s.tmdb, now, PerType, skip)
 	if err1 != nil && err2 != nil {
 		s.mu.Lock()
 		s.st.LastError = err1.Error()
@@ -228,7 +277,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 			s.dropVideoLocked(e)
 			e.State, e.Attempts, e.RetryAt = StatePending, 0, nil
 		}
-		if e.State == StateNoTool && ytdlpPath() != "" {
+		if bin, _ := s.tool.path(); e.State == StateNoTool && bin != "" {
 			e.State = StatePending // yt-dlp has been installed since
 		}
 	}
@@ -435,15 +484,16 @@ func (s *Service) enforceBudgetLocked() {
 
 // Snapshot is the lineup as the API returns it.
 type Snapshot struct {
-	Movies    []Entry  `json:"movies"`
-	Series    []Entry  `json:"series"`
-	Refreshed string   `json:"refreshed,omitempty"`
-	Settings  Settings `json:"settings"`
-	UsedBytes int64    `json:"used_bytes"`
-	Working   string   `json:"working,omitempty"`
-	LastError string   `json:"last_error,omitempty"`
-	Log       []string `json:"log,omitempty"`
-	YTDLP     string   `json:"ytdlp,omitempty"` // version, "" if missing
+	Movies    []Entry     `json:"movies"`
+	Series    []Entry     `json:"series"`
+	Refreshed string      `json:"refreshed,omitempty"`
+	Settings  Settings    `json:"settings"`
+	UsedBytes int64       `json:"used_bytes"`
+	Working   string      `json:"working,omitempty"`
+	LastError string      `json:"last_error,omitempty"`
+	Log       []string    `json:"log,omitempty"`
+	YTDLP     string      `json:"ytdlp,omitempty"` // version, "" if missing
+	Tool      *ToolStatus `json:"tool,omitempty"`
 }
 
 func (s *Service) Snapshot(withLog bool) Snapshot {
@@ -453,9 +503,13 @@ func (s *Service) Snapshot(withLog bool) Snapshot {
 	if !s.st.Refreshed.IsZero() {
 		snap.Refreshed = s.st.Refreshed.UTC().Format(time.RFC3339)
 	}
+	today := s.now().Format(day)
 	for _, e := range s.st.Entries {
 		if e.Video != nil {
 			snap.UsedBytes += e.Video.Bytes
+		}
+		if !withLog && (e.ReleaseDate <= today || (s.InLibrary != nil && s.InLibrary(e.MediaType, e.TMDBID, e.Season))) {
+			continue // out now or already here: gone at the next refresh
 		}
 		if e.MediaType == "movie" {
 			snap.Movies = append(snap.Movies, *e)
@@ -468,9 +522,9 @@ func (s *Service) Snapshot(withLog bool) Snapshot {
 	by(snap.Series)
 	if withLog {
 		snap.Log = append([]string{}, s.log...)
-		if bin := ytdlpPath(); bin != "" {
-			snap.YTDLP = ytdlpVersion(bin)
-		}
+		ts := s.tool.Status()
+		snap.Tool = &ts
+		snap.YTDLP = ts.Version
 	}
 	return snap
 }

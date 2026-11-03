@@ -183,8 +183,12 @@ func topIDs(m map[int]float64, n int) []int {
 	return ids
 }
 
-// PickMovies: upcoming US-produced films with a trailer, best first.
-func PickMovies(t TMDB, now time.Time, want int) ([]Candidate, error) {
+// Skip reports titles to leave out (e.g. already in the library).
+type Skip func(c Candidate) bool
+
+// PickMovies: upcoming US-produced films with a trailer, best first. Films
+// that have already opened in theaters anywhere are left out.
+func PickMovies(t TMDB, now time.Time, want int, skip Skip) ([]Candidate, error) {
 	from, to := window(now)
 	ids := map[int]float64{}
 	err := collectIDs(t, "/discover/movie", url.Values{
@@ -252,6 +256,21 @@ func PickMovies(t TMDB, now time.Time, want int) ([]Candidate, error) {
 		if doc {
 			continue
 		}
+		today := now.Format(day)
+		if d.ReleaseDate != "" && d.ReleaseDate <= today {
+			continue // already out
+		}
+		inTheaters := false
+		for _, r := range d.ReleaseDates.Results {
+			for _, x := range r.Dates {
+				if (x.Type == 2 || x.Type == 3) && len(x.Date) >= 10 && x.Date[:10] <= today {
+					inTheaters = true // limited or wide theatrical release anywhere
+				}
+			}
+		}
+		if inTheaters {
+			continue
+		}
 		// US theatrical (type 3) or digital (4) date, else the primary date.
 		release := d.ReleaseDate
 		for _, r := range d.ReleaseDates.Results {
@@ -288,6 +307,9 @@ func PickMovies(t TMDB, now time.Time, want int) ([]Candidate, error) {
 			c.Studio = d.ProductionCompanies[0].Name
 		}
 		c.Score = score(c.Popularity, c.StarPower, rt, now)
+		if skip != nil && skip(c) {
+			continue
+		}
 		out = append(out, c)
 	}
 	return pickTop(out, want), nil
@@ -295,7 +317,7 @@ func PickMovies(t TMDB, now time.Time, want int) ([]Candidate, error) {
 
 // PickSeries: new US/UK series and new seasons of popular shows premiering
 // in the window, with a trailer.
-func PickSeries(t TMDB, now time.Time, want int) ([]Candidate, error) {
+func PickSeries(t TMDB, now time.Time, want int, skip Skip) ([]Candidate, error) {
 	from, to := window(now)
 	ids := map[int]float64{}
 	err := collectIDs(t, "/discover/tv", url.Values{
@@ -353,12 +375,12 @@ func PickSeries(t TMDB, now time.Time, want int) ([]Candidate, error) {
 		if !west {
 			continue
 		}
-		skip := false
+		badGenre := false
 		for _, g := range d.Genres {
 			// talk shows, news, reality, soaps, kids: not "coming soon" material
-			skip = skip || g.ID == 10767 || g.ID == 10763 || g.ID == 10764 || g.ID == 10766 || g.ID == 10762
+			badGenre = badGenre || g.ID == 10767 || g.ID == 10763 || g.ID == 10764 || g.ID == 10766 || g.ID == 10762
 		}
-		if skip {
+		if badGenre {
 			continue
 		}
 		c := Candidate{TMDBID: d.ID, MediaType: "tv", Title: d.Name, Overview: d.Overview, Tagline: d.Tagline,
@@ -400,6 +422,9 @@ func PickSeries(t TMDB, now time.Time, want int) ([]Candidate, error) {
 			c.Studio = d.Networks[0].Name
 		}
 		c.Score = score(c.Popularity, c.StarPower, rt, now)
+		if skip != nil && skip(c) {
+			continue
+		}
 		out = append(out, c)
 	}
 	return pickTop(out, want), nil

@@ -56,6 +56,7 @@ import RedLoader from '@/components/RedLoader';
 import UpcomingMovies from '@/components/UpcomingMovies';
 import UpcomingTVSeries from '@/components/UpcomingTVSeries';
 import AutoDownloadButton from '@/components/autodl/AutoDownloadButton';
+import ComingSoonCallout from '@/components/comingsoon/ComingSoonCallout';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
 import { GradientBackground } from '@/components/scrollx';
@@ -1809,6 +1810,12 @@ const TMDBMoviePage: React.FC = () => {
       {/* Details Section - Bottom Left */}
       <div className="relative z-[10] bg-black pt-16 pb-24">
         <div className="container mx-auto px-6 md:px-12 lg:px-16">
+          {/* Upcoming title in the Coming Soon lineup: release date, trailer, Notify Me */}
+          <ComingSoonCallout
+            tmdbId={movieId}
+            type={searchParams?.get('type') === 'tv' ? 'tv' : 'movie'}
+            className="mb-10"
+          />
           <div className="flex justify-start">
             <div className="w-full">
               {/* Media Info */}

@@ -549,15 +549,35 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// trailers downloaded for smooth playback (docs/COMING_SOON.md).
 		if tmdbService != nil {
 			comingSoon := comingsoon.New(tmdbService)
+			// Never feature what the library already has (movie, new series,
+			// or that new season).
+			comingSoon.InLibrary = func(mediaType string, tmdbID, season int) bool {
+				var n int64
+				if mediaType == "movie" {
+					db.Model(&models.Media{}).Where("type = ? AND tmdb_id = ?", "movie", tmdbID).Count(&n)
+					return n > 0
+				}
+				var series models.Series
+				if db.Select("id").Where("tmdb_id = ?", tmdbID).First(&series).Error != nil {
+					return false
+				}
+				if season <= 1 {
+					return true
+				}
+				db.Model(&models.Media{}).Where("series_id = ? AND season_number = ?", series.ID, season).Count(&n)
+				return n > 0
+			}
 			go comingSoon.Run(context.Background())
 			api.GET("/comingsoon", handlers.GetComingSoon(comingSoon, autoDL))
 			api.GET("/comingsoon/video/:name", handlers.ComingSoonVideo(comingSoon))
+			api.GET("/comingsoon/title/:type/:id", handlers.GetComingSoonTitle(comingSoon, autoDL))
 			api.HEAD("/comingsoon/video/:name", handlers.ComingSoonVideo(comingSoon))
 			api.POST("/comingsoon/notify", handlers.NotifyComingSoon(comingSoon, autoDL))
 			api.DELETE("/comingsoon/notify/:type/:id", handlers.UnnotifyComingSoon(autoDL))
 			api.GET("/admin/comingsoon", handlers.ComingSoonAdmin(comingSoon))
 			api.POST("/admin/comingsoon/refresh", handlers.RefreshComingSoon(comingSoon))
 			api.PUT("/admin/comingsoon/settings", handlers.UpdateComingSoonSettings(comingSoon))
+			api.POST("/admin/comingsoon/ytdlp", handlers.UpdateComingSoonTool(comingSoon))
 		}
 		api.GET("/autodownload/settings", handlers.GetAutoDownloadSettings(autoDL))
 		api.PUT("/autodownload/settings", handlers.UpdateAutoDownloadSettings(autoDL))

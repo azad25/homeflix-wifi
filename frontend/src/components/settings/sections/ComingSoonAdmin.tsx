@@ -28,6 +28,7 @@ interface Snap {
   working?: string;
   last_error?: string;
   ytdlp?: string;
+  tool?: { path?: string; source?: string; version?: string; installing?: boolean; error?: string; checked_at?: string };
   log?: string[];
 }
 
@@ -63,7 +64,7 @@ export default function ComingSoonAdmin() {
   useEffect(() => {
     load();
   }, [load]);
-  const busy = !!s && (!!s.working || [...s.movies, ...s.series].some((e) => e.state === "pending"));
+  const busy = !!s && (!!s.working || !!s.tool?.installing || [...s.movies, ...s.series].some((e) => e.state === "pending"));
   useEffect(() => {
     if (!busy) return;
     const t = setInterval(load, 5000);
@@ -78,6 +79,12 @@ export default function ComingSoonAdmin() {
     const d = await r.json().catch(() => ({}));
     log(r.ok ? "✅ Coming Soon settings saved" : `❌ ${d.error || "Couldn't save"}`);
     load();
+  };
+  const updateTool = async () => {
+    await fetch(`${getApiUrl()}/api/admin/comingsoon/ytdlp`, { method: "POST" });
+    log("⬇️ Installing the latest yt-dlp…");
+    setTimeout(load, 3000);
+    setTimeout(load, 12000);
   };
   const refresh = async () => {
     await fetch(`${getApiUrl()}/api/admin/comingsoon/refresh`, { method: "POST" });
@@ -132,15 +139,27 @@ export default function ComingSoonAdmin() {
           </div>
           <p className="mt-1.5 text-[12px] text-white/40">Each trailer gets an equal share and is re-encoded to fit it (1080p H.264, about {fmt(s.settings.budget_bytes / 20)} each).</p>
         </div>
-        <Row icon={<Terminal />} title="Downloader" description={s.ytdlp ? `yt-dlp ${s.ytdlp}` : "yt-dlp isn't installed. Trailers play from YouTube until it is."}>
-          {s.ytdlp ? <Badge tone="success">Ready</Badge> : <Badge tone="danger">Missing</Badge>}
+        <Row
+          icon={<Terminal />}
+          title="Downloader"
+          description={
+            s.tool?.installing
+              ? "Installing yt-dlp…"
+              : s.ytdlp
+                ? `yt-dlp ${s.ytdlp} · ${s.tool?.source === "managed" ? "managed by HomeFlix, updated weekly" : s.tool?.source === "env" ? "set by HOMEFLIX_YTDLP" : "system copy"}`
+                : "HomeFlix installs its own yt-dlp automatically."
+          }
+        >
+          {s.tool?.installing ? <Badge tone="info">Installing</Badge> : s.ytdlp ? <Badge tone="success">Ready</Badge> : <Badge tone="danger">Missing</Badge>}
+          <Button size="sm" variant="ghost" icon={<RefreshCw />} onClick={updateTool} disabled={!!s.tool?.installing}>
+            {s.ytdlp ? "Update" : "Install"}
+          </Button>
         </Row>
       </Group>
 
-      {!s.ytdlp && (
-        <Notice tone="info" title="Install yt-dlp to keep trailers on the server">
-          On the server run <span className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[12px] text-white">sudo apt install yt-dlp</span> or{" "}
-          <span className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[12px] text-white">pipx install yt-dlp</span>, then press Check Now. Downloading from YouTube may go against YouTube&apos;s terms; it&apos;s used here for personal playback only.
+      {s.tool?.error && (
+        <Notice tone="danger" title="Couldn't install yt-dlp">
+          {s.tool.error}. Trailers play from YouTube until it&apos;s fixed.
         </Notice>
       )}
       {s.last_error && <Notice tone="danger" title="Couldn't check TMDB">{s.last_error}</Notice>}

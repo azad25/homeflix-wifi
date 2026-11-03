@@ -219,3 +219,32 @@ func UpdateComingSoonSettings(cs *comingsoon.Service) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"settings": out, "message": "Saved"})
 	}
 }
+
+// GetComingSoonTitle — GET /api/comingsoon/title/:type/:id: one title (404
+// when it isn't in the Coming Soon lineup). Used by title pages.
+func GetComingSoonTitle(cs *comingsoon.Service, a *autodl.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, _ := strconv.Atoi(c.Param("id"))
+		mt := c.Param("type")
+		snap := cs.Snapshot(false) // released / in-library titles are already hidden here
+		for _, list := range [][]comingsoon.Entry{snap.Movies, snap.Series} {
+			for _, e := range list {
+				if e.TMDBID == id && e.MediaType == mt {
+					c.Header("Cache-Control", "no-cache")
+					c.JSON(http.StatusOK, comingSoonView(e, notifyIndex(a)))
+					return
+				}
+			}
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "not coming soon"})
+	}
+}
+
+// UpdateComingSoonTool — POST /api/admin/comingsoon/ytdlp: install or
+// update HomeFlix's own yt-dlp now.
+func UpdateComingSoonTool(cs *comingsoon.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		go func() { _ = cs.UpdateTool(context.Background(), true) }()
+		c.JSON(http.StatusAccepted, gin.H{"message": "Installing the latest yt-dlp…"})
+	}
+}

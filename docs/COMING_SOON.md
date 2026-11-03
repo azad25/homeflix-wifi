@@ -19,6 +19,11 @@ on release day.
 - **Ranking:** popularity combined with "star power" (how popular the
   top-billed cast is). Titles releasing far in the future count slightly
   less. Obscure titles are filtered out with minimum thresholds.
+- **Never already out:** a movie that has opened in theaters anywhere
+  (limited or wide), or whose release date has passed, is left out. So is
+  anything already in the library: the movie, a new series, or that new
+  season. This is checked when the lineup is built and again every time it
+  is served, so a title imported between refreshes disappears immediately.
 - **No duplicates:** one entry per title and per trailer.
 - **Rotation:** new titles are queued for download. Titles that are released
   or drop out of the top 10 are removed with their video. When a better
@@ -26,16 +31,20 @@ on release day.
 
 ## Trailer files
 
-- The best trailer up to 1080p is downloaded with yt-dlp (it must be installed
-  on the server), then re-encoded for direct playback everywhere:
+- The best trailer up to 1080p is downloaded with **HomeFlix's own yt-dlp**.
+  The official standalone build is fetched from GitHub into
+  `data/comingsoon/bin`, verified against the release's SHA-256 checksums
+  and updated weekly; nothing has to be installed by hand. Node (already on
+  the server) is used as yt-dlp's JavaScript runtime. The trailer is then
+  re-encoded for direct playback everywhere:
   **H.264 High@4.1, ≤1920×1080, AAC stereo 128 kb/s, MP4 with faststart**.
 - Space: 1 GB for all 20 trailers by default (configurable). Each trailer is
   encoded to its share, about 50 MB, which is roughly 2.5 Mb/s of 1080p
   video for a 2.5-minute trailer.
 - If the budget is ever exceeded, the lowest-ranked trailers are dropped
   first.
-- Without yt-dlp, or before a download finishes, a title still appears; use
-  its `youtube_id` instead.
+- If the downloader isn't ready, or before a download finishes, a title
+  still appears; use its `youtube_id` instead.
 
 ## API (for the TV app)
 
@@ -80,6 +89,12 @@ Optional `?type=movie` or `?type=tv`.
 
 Both lists are sorted by `rank`. Fetch again whenever the screen opens; it's
 small and cheap.
+
+### `GET /api/comingsoon/title/:type/:id`
+
+One title, in the same shape as a list entry. Returns 404 when the title
+isn't coming soon (not in the lineup, released, or already in the library).
+Title pages use it to show the Coming Soon panel.
 
 ### `GET /api/comingsoon/video/:file`
 

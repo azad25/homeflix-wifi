@@ -24,15 +24,6 @@ type Video struct {
 	Height   int     `json:"height"`
 }
 
-// ytdlpPath: $HOMEFLIX_YTDLP, else yt-dlp on PATH ("" if missing).
-func ytdlpPath() string {
-	if p := strings.TrimSpace(os.Getenv("HOMEFLIX_YTDLP")); p != "" {
-		return p
-	}
-	p, _ := exec.LookPath("yt-dlp")
-	return p
-}
-
 func ytdlpVersion(bin string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -60,13 +51,17 @@ func run(ctx context.Context, name string, args ...string) error {
 // download fetches the trailer (best ≤1080p) into dir and returns the file.
 func download(ctx context.Context, bin, youtubeID, dir string) (string, error) {
 	out := filepath.Join(dir, "src.%(ext)s")
-	err := run(ctx, bin,
-		"--no-playlist", "--no-progress", "--no-warnings", "--quiet",
+	args := []string{"--no-playlist", "--no-progress", "--no-warnings", "--quiet",
 		"-f", "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
 		"--merge-output-format", "mkv",
 		"--max-filesize", "1500M",
 		"-o", out,
-		"https://www.youtube.com/watch?v="+youtubeID)
+		"https://www.youtube.com/watch?v=" + youtubeID}
+	js := jsRuntimeArgs()
+	err := run(ctx, bin, append(js, args...)...)
+	if err != nil && len(js) > 0 && strings.Contains(err.Error(), "no such option") {
+		err = run(ctx, bin, args...) // older yt-dlp without --js-runtimes
+	}
 	if err != nil {
 		return "", err
 	}

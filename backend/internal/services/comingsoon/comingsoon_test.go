@@ -65,7 +65,7 @@ func TestPickMoviesFiltersAndRanks(t *testing.T) {
 		"/movie/7":        movie(7, "Big Sequel", "2027-05-01", 80, cast(50, 40), nil), // same title
 		"/movie/8":        movie(8, "Spring Blockbuster", "2027-04-17", 70, cast(70, 30, 20), nil),
 	}
-	got, err := PickMovies(f, now, 10)
+	got, err := PickMovies(f, now, 10, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestPickSeriesNewAndReturning(t *testing.T) {
 		"/tv/12":                 show(12, "Mid Season", M{"first_air_date": "2020-01-01", "next_episode_to_air": M{"air_date": "2026-11-10", "season_number": 4, "episode_number": 5}}),
 		"/tv/13":                 show(13, "Talk Tonight", M{"first_air_date": "2027-01-01", "genres": []M{{"id": 10767, "name": "Talk"}}}),
 	}
-	got, err := PickSeries(f, now, 10)
+	got, err := PickSeries(f, now, 10, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,5 +231,23 @@ func TestVideoKbps(t *testing.T) {
 	}
 	if k := videoKbps(DefaultBudget/20, 20); k != 6000 {
 		t.Fatalf("short clip cap %d", k)
+	}
+}
+
+func TestExcludesTheatricalAndLibraryTitles(t *testing.T) {
+	theatrical := M{"release_dates": M{"results": []M{
+		{"iso_3166_1": "GB", "release_dates": []M{{"release_date": "2026-10-20T00:00:00.000Z", "type": 3}}},
+		{"iso_3166_1": "US", "release_dates": []M{{"release_date": "2027-01-10T00:00:00.000Z", "type": 4}}}}}}
+	f := fakeTMDB{
+		"/discover/movie": M{"results": []M{{"id": 1, "popularity": 300}, {"id": 2, "popularity": 200}, {"id": 3, "popularity": 100}}},
+		"/movie/upcoming": M{"results": []M{}},
+		"/movie/1":        movie(1, "In UK Cinemas", "2027-01-10", 300, cast(80, 60, 40), theatrical),
+		"/movie/2":        movie(2, "Already Have It", "2027-02-10", 200, cast(80, 60, 40), nil),
+		"/movie/3":        movie(3, "Truly Upcoming", "2027-03-10", 100, cast(80, 60, 40), nil),
+	}
+	inLib := func(c Candidate) bool { return c.MediaType == "movie" && c.TMDBID == 2 }
+	got, err := PickMovies(f, now, 10, inLib)
+	if err != nil || len(got) != 1 || got[0].Title != "Truly Upcoming" {
+		t.Fatalf("picked %+v %v", got, err)
 	}
 }
