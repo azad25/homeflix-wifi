@@ -22,7 +22,6 @@ import {
 import { Notification } from '@/types/notifications';
 import { getApiUrl } from '@/lib/api';
 import { getColorPaletteByGenre } from '@/types/widgets';
-import TileEffects from './TileEffects';
 import { loadYouTubeAPI } from '@/lib/youtube';
 
 interface NotificationTileProps {
@@ -49,6 +48,26 @@ declare global {
 if (typeof window !== 'undefined' && !window.__initializedYTPlayers) {
   window.__initializedYTPlayers = new Set();
 }
+
+const TYPE_LABEL: Record<string, string> = {
+  new_movies: 'New in Library',
+  new_episodes: 'New Episodes',
+  recently_added: 'Just Added',
+  download_complete: 'Ready to Watch',
+  movie_suggestion: 'For You',
+  single_movie_suggestion: 'For You',
+  genre_based: 'For You',
+  watch_again: 'Watch Again',
+  continue_watching: 'Continue Watching',
+  tmdb_trending: 'Trending',
+  local_trending: 'Popular at Home',
+  tmdb_now_playing: 'In Theaters',
+  tmdb_upcoming: 'Coming Soon',
+  tmdb_coming_soon: 'Coming Soon',
+  coming_soon: 'Coming Soon',
+  tmdb_upcoming_tv: 'Coming to TV',
+  tmdb_now_airing_tv: 'Now Airing',
+};
 
 const NotificationTile: React.FC<NotificationTileProps> = ({
   notification,
@@ -604,33 +623,17 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
 
   return (
     <motion.div
-      className={`relative overflow-hidden rounded-xl border border-white/10 backdrop-blur-sm ${className} cursor-pointer`}
-      style={{
-        background: themeColors.background,
-        boxShadow: `0 8px 32px ${themeColors.primary}20, inset 0 1px 0 rgba(255,255,255,0.1)`,
-      }}
+      className={`group/tile relative overflow-hidden rounded-[18px] ${className} cursor-pointer`}
+      style={{ background: 'linear-gradient(160deg, #2c2c2e 0%, #1c1c1e 60%, #111 100%)' }}
       onClick={(e) => {
         // Only trigger if not clicking on buttons
         if ((e.target as HTMLElement).closest('button')) return;
         onTileClickRef.current?.();
       }}
-      transition={{ duration: 0.2 }}
-      animate={{
-        // Subtle breathing animation for high priority items
-        ...(enhancedNotification.priority === 'high' && {
-          boxShadow: [
-            `0 8px 32px ${themeColors.primary}20, inset 0 1px 0 rgba(255,255,255,0.1)`,
-            `0 12px 40px ${themeColors.primary}40, inset 0 1px 0 rgba(255,255,255,0.15)`,
-            `0 8px 32px ${themeColors.primary}20, inset 0 1px 0 rgba(255,255,255,0.1)`,
-          ]
-        })
-      }}
-      {...(enhancedNotification.priority === 'high' && {
-        transition: {
-          boxShadow: { duration: 2, repeat: Infinity, ease: "easeInOut" },
-        }
-      })}
+      whileHover={{ scale: 1.015 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
     >
+      <div className="pointer-events-none absolute inset-0 z-30 rounded-[18px] ring-1 ring-inset ring-white/[0.08] transition-[box-shadow] duration-300 group-hover/tile:ring-white/25" />
       {/* Background Image - Show backdrop, hide when trailer plays */}
       {backdropUrl && !imageError ? (
         <motion.div
@@ -741,52 +744,23 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
         transition={{ duration: 0.5, delay: 0.2 }}
         className="absolute inset-0 z-15 pointer-events-none"
       >
-        {/* Minimal gradients to preserve backdrop/video visibility while ensuring text readability */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
-        {/* Text area protection */}
-        <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/95 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-black/90 via-black/35 to-transparent" />
+        <div className="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/30 to-transparent" />
       </motion.div>
 
-      {/* Tile Effects */}
-      <TileEffects priority={enhancedNotification.priority || 'medium'} themeColors={themeColors} />
 
       {/* Content */}
       <div className={`absolute inset-0 flex flex-col justify-end z-20 ${sizeConfig.container} ${size === 'banner' ? 'pb-2' : 'pb-4'}`}>
-        {/* Icon and Timestamp with conditional visibility enhancement */}
-        <div className={`flex items-center gap-2 ${size === 'banner' ? 'mb-1' : 'mb-2'}`}>
-          <div
-            className="rounded-full backdrop-blur-md border p-1.5"
-            style={{
-              backgroundColor: `${themeColors.primary}40`,
-              borderColor: `${themeColors.primary}60`,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.8)',
-            }}
+        {/* Caption: what this is, and when */}
+        <div className={`flex items-center gap-1.5 ${size === 'banner' ? 'mb-1' : 'mb-1.5'}`}>
+          <span
+            className={`truncate font-semibold uppercase tracking-[0.08em] text-white/75 ${size === 'small' ? 'text-[9.5px]' : 'text-[10.5px] md:text-[11px]'}`}
+            style={{ textShadow: '0 1px 4px rgba(0,0,0,0.6)' }}
           >
-            {getNotificationIcon(notification.type)}
-          </div>
-          {/* TV Series indicator for small tiles */}
-          {isTVSeries() && size === 'small' && (
-            <div
-              className="rounded-full backdrop-blur-md border p-1"
-              style={{
-                backgroundColor: `${themeColors.accent}40`,
-                borderColor: `${themeColors.accent}60`,
-                boxShadow: '0 2px 8px rgba(0,0,0,0.8)',
-              }}
-            >
-              <Tv className="w-3 h-3 text-white/70" />
-            </div>
-          )}
-          <div
-            className="text-xs font-medium"
-            style={{
-              color: 'rgba(255,255,255,0.7)',
-              textShadow: '0 1px 3px rgba(0,0,0,0.9), 0 2px 6px rgba(0,0,0,0.8)',
-            }}
-          >
-            {formatTimestamp(notification.timestamp)}
-          </div>
+            {TYPE_LABEL[notification.type] || 'Update'}
+            {isTVSeries() && size === 'small' ? ' · TV' : ''}
+            <span className="text-white/45"> · {formatTimestamp(notification.timestamp)}</span>
+          </span>
         </div>
 
         {/* Title Section - Logo with text fallback */}
@@ -877,40 +851,31 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
           </p>
         )}
 
-        {/* Movie Details Row - Rating, Year, Genres, TV Tag */}
-        {(size === 'hero' || size === 'large' || size === 'banner') && (
-          <div className={`flex flex-wrap items-center gap-2 ${size === 'banner' ? 'mb-1' : 'mb-3'} text-xs`}>
-            {/* TV Series Tag */}
-            {isTVSeries() && (
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/10 text-white border border-red-500/30">
-                <Tv className="w-3 h-3" />
-                TV
-              </span>
-            )}
-            {enhancedNotification.rating && enhancedNotification.rating > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-                <Star className="w-3 h-3 fill-current" />
-                {enhancedNotification.rating.toFixed(1)}
-              </span>
-            )}
-            {((enhancedNotification.year && enhancedNotification.year > 1900) || enhancedNotification.release_date) && (
-              <span className="inline-flex items-center px-2 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                {(enhancedNotification.year && enhancedNotification.year > 1900) ? enhancedNotification.year : new Date(enhancedNotification.release_date!).getFullYear()}
-              </span>
-            )}
-            {enhancedNotification.genres && enhancedNotification.genres.length > 0 && (
-              <span className="inline-flex items-center px-2 py-1 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30">
-                {enhancedNotification.genres.slice(0, 2).join(' • ')}
-              </span>
-            )}
-            {enhancedNotification.runtime && enhancedNotification.runtime > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
-                <Clock className="w-3 h-3" />
-                {Math.floor(enhancedNotification.runtime / 60)}h {enhancedNotification.runtime % 60}m
-              </span>
-            )}
-          </div>
-        )}
+        {/* Details: one quiet line, Apple TV style */}
+        {(size === 'hero' || size === 'large' || size === 'banner') && (() => {
+          const year = enhancedNotification.year && enhancedNotification.year > 1900
+            ? enhancedNotification.year
+            : enhancedNotification.release_date ? new Date(enhancedNotification.release_date).getFullYear() : null;
+          const bits = [
+            isTVSeries() ? 'TV' : null,
+            year ? String(year) : null,
+            enhancedNotification.genres?.length ? enhancedNotification.genres.slice(0, 2).join(', ') : null,
+            enhancedNotification.runtime && enhancedNotification.runtime > 0 ? `${Math.floor(enhancedNotification.runtime / 60)}h ${enhancedNotification.runtime % 60}m` : null,
+          ].filter(Boolean);
+          const rating = enhancedNotification.rating && enhancedNotification.rating > 0 ? enhancedNotification.rating : null;
+          if (!bits.length && !rating) return null;
+          return (
+            <div className={`flex items-center gap-2 text-[12px] font-medium text-white/70 ${size === 'banner' ? 'mb-1' : 'mb-2.5'}`} style={{ textShadow: '0 1px 4px rgba(0,0,0,0.6)' }}>
+              {rating && (
+                <span className="inline-flex items-center gap-1 text-white/90">
+                  <Star className="h-3 w-3 fill-current" /> {rating.toFixed(1)}
+                </span>
+              )}
+              {rating && bits.length > 0 && <span className="text-white/35">·</span>}
+              <span className="truncate">{bits.join(' · ')}</span>
+            </div>
+          );
+        })()}
 
         {/* Continue Watching Progress */}
         {notification.type === 'continue_watching' && enhancedNotification.progress && (
@@ -923,7 +888,7 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
             </div>
             <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden">
               <motion.div
-                className="h-full bg-red-600"
+                className="h-full rounded-full bg-white"
                 initial={{ width: 0 }}
                 animate={{ width: `${enhancedNotification.progress}%` }}
                 transition={{ duration: 1, delay: 0.5 }}
@@ -948,7 +913,7 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
 
               return (
                 <div key={`${media.source_type}_${media.source_id}`} className="flex-shrink-0">
-                  <div className="w-12 h-16 rounded overflow-hidden border border-white/20 bg-gray-800">
+                  <div className="w-11 h-16 rounded-md overflow-hidden ring-1 ring-white/15 bg-white/5">
                     <img
                       src={mediaPosterUrl}
                       alt={media.title}
@@ -965,65 +930,9 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
           </div>
         )}
 
-        {/* Single Movie Details - TMDB and Local URLs */}
-        {sizeConfig.showPoster && posterUrl && !enhancedNotification.media_details && (
-          <div className="flex items-start gap-3 mb-3">
-            <div className="flex-shrink-0">
-              <div className="w-16 h-24 rounded border border-white/20 bg-gray-800 overflow-hidden">
-                <img
-                  src={posterUrl}
-                  alt="Poster"
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    // Just hide on error, no retries
-                    e.currentTarget.style.display = 'none';
-                    handleImageError(posterUrl);
-                  }}
-                />
-              </div>
-            </div>
-            {sizeConfig.showDetails && (
-              <div className="flex-1 min-w-0">
-                {/* TV Series Tag for single movie details */}
-                {isTVSeries() && (
-                  <div className="flex items-center gap-1 mb-1">
-                    <Tv className="w-3 h-3 text-white/70" />
-                    <span className="text-red-400 text-xs font-medium">TV Series</span>
-                  </div>
-                )}
-                {enhancedNotification.rating && enhancedNotification.rating > 0 && (
-                  <div className="flex items-center gap-1 mb-1">
-                    <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                    <span className="text-white/80 text-xs font-medium">
-                      {enhancedNotification.rating.toFixed(1)}
-                    </span>
-                  </div>
-                )}
-                {enhancedNotification.genres && enhancedNotification.genres.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {enhancedNotification.genres.slice(0, 2).map((genre) => (
-                      <span
-                        key={genre}
-                        className="px-1.5 py-0.5 text-xs rounded-full border font-medium"
-                        style={{
-                          backgroundColor: `${themeColors.primary}20`,
-                          borderColor: `${themeColors.primary}40`,
-                          color: themeColors.accent
-                        }}
-                      >
-                        {genre}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Sound Control Icon - ONLY for Hero and Large tiles with video */}
         {(size === 'hero' || size === 'large') && (enhancedNotification.trailer_key || previewVideoUrl) && (
-          <div className="absolute top-2 right-2 z-30">
+          <div className={`absolute right-3 top-3 z-30 transition-opacity duration-300 ${isMuted ? 'opacity-0 group-hover/tile:opacity-100' : 'opacity-100'}`}>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -1051,10 +960,7 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
                   console.log(newMutedState ? '🔇 Muted preview' : '🔊 Unmuted preview');
                 }
               }}
-              className="backdrop-blur-md rounded-full border p-2 transition-all hover:scale-110 bg-black/50 hover:bg-black/70"
-              style={{
-                borderColor: `${themeColors.primary}50`
-              }}
+              className="rounded-full bg-black/40 p-2 ring-1 ring-white/15 backdrop-blur-xl transition-all hover:scale-110 hover:bg-black/60"
               title={isMuted ? "Unmute" : "Mute"}
             >
               {isMuted ?

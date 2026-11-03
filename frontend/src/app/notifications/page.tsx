@@ -82,8 +82,8 @@ const NotificationsPage: React.FC = () => {
     const height = window.innerHeight;
 
     // Simplified grid calculations for better performance
-    if (width < 768) return { cols: 6, rows: 8 };   // Mobile: simple grid
-    if (width < 1024) return { cols: 10, rows: 8 }; // Tablet: moderate grid
+    if (width < 768) return { cols: 4, rows: 6 };   // Mobile: fewer, bigger tiles
+    if (width < 1024) return { cols: 8, rows: 7 };  // Tablet: moderate grid
     if (width < 1440) return { cols: 14, rows: 9 }; // Desktop: good variety
     if (width < 1920) return { cols: 16, rows: 10 }; // Large: high variety
     return { cols: 20, rows: 10 };                   // Ultra-wide: maximum variety
@@ -944,14 +944,14 @@ const NotificationsPage: React.FC = () => {
       <Navbar />
       {/* Live mosaic: tiles keep morphing and playing trailers */}
       <section
-        className={`relative overflow-hidden bg-black transition-[height] duration-500 ${notifications.length === 0 && feedLoaded ? 'h-[220px]' : 'h-[60vh] min-h-[420px] max-h-[720px]'}`}
+        className={`relative overflow-hidden bg-black transition-[height] duration-500 ${notifications.length === 0 && feedLoaded ? 'h-[220px]' : 'h-[68vh] min-h-[520px] max-h-[820px]'}`}
         style={{ marginTop: '64px' }}
         aria-label="Live activity"
       >
         <div className="absolute inset-0 bg-black" />
 
-        {/* Notification Tiles - Fill entire viewport */}
-        <div className="absolute inset-0 z-20">
+        {/* Notification tiles, inset from the screen edges */}
+        <div className="absolute bottom-[176px] left-2 right-2 top-2 z-20 md:bottom-[196px] md:left-6 md:right-6">
           <AnimatePresence mode="popLayout">
             {activeTiles.map((tile, index) => {
               const isPlayingTrailer = playingTrailers.has(tile.id);
@@ -987,20 +987,16 @@ const NotificationsPage: React.FC = () => {
                       }
                     })
                   }}
-                  className="absolute overflow-hidden rounded-lg shadow-2xl cursor-pointer"
+                  className="absolute cursor-pointer overflow-hidden rounded-[18px]"
                 style={{
-                  left: `calc(${(tile.position.x / gridDimensions.cols) * 100}% + 2px)`,
-                  top: `calc(${(tile.position.y / gridDimensions.rows) * 100}% + 2px)`,
-                  width: `calc(${(tile.position.width / gridDimensions.cols) * 100}% - 4px)`,
-                  height: `calc(${(tile.position.height / gridDimensions.rows) * 100}% - 4px)`,
+                  // 8px gutters between tiles, like an Apple TV shelf
+                  left: `calc(${(tile.position.x / gridDimensions.cols) * 100}% + 4px)`,
+                  top: `calc(${(tile.position.y / gridDimensions.rows) * 100}% + 4px)`,
+                  width: `calc(${(tile.position.width / gridDimensions.cols) * 100}% - 8px)`,
+                  height: `calc(${(tile.position.height / gridDimensions.rows) * 100}% - 8px)`,
                   zIndex: tile.priority + 20,
-                  boxShadow: `0 8px 32px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1)`,
-                  minWidth: '120px', // Reduced minimum width for more tiles
-                  minHeight: '80px', // Reduced minimum height for more tiles
-                  // Prevent overlaps with strict positioning
-                  position: 'absolute',
-                  overflow: 'hidden',
-                  isolation: 'isolate', // Create new stacking context
+                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.45)',
+                  isolation: 'isolate',
                 }}
                 >
                   <NotificationTile
@@ -1020,7 +1016,7 @@ const NotificationsPage: React.FC = () => {
 
         {/* Title over a fade into the page below */}
         <div className="pointer-events-none absolute inset-x-0 top-0 z-40 h-24 bg-gradient-to-b from-black/80 to-transparent" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 h-56 bg-gradient-to-t from-black via-black/75 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-[150px] z-40 h-24 bg-gradient-to-t from-black/70 to-transparent md:bottom-[170px]" />
         <div className="pointer-events-none absolute bottom-7 left-0 z-40 tv-gutter">
           <span className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-[#ff453a] px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-white shadow-[0_4px_20px_rgba(255,69,58,0.4)]">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> Live

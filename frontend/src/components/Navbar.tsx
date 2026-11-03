@@ -1,5 +1,6 @@
 "use client";
 
+import BrandLogo from "@/components/brand/BrandLogo";
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Bell, User, Menu, X, Film, Tv, Music, List, Compass, Settings, HelpCircle, LogOut, Info } from "lucide-react";
@@ -373,7 +374,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                 }
               }}
             >
-              Home<span className="text-red-500">Flix</span>
+              <BrandLogo size="md" />
             </NavigationLink>
           </div>
 
@@ -611,9 +612,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
               >
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-white/10 bg-gradient-to-b from-black/50 to-transparent">
-                  <span className="text-2xl font-black tracking-tight text-white drop-shadow-md">
-                    Home<span className="text-red-500">Flix</span>
-                  </span>
+                  <BrandLogo size="md" />
                   <button
                     onClick={() => setIsSidebarOpen(false)}
                     className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-all duration-300 hover:rotate-90"
@@ -639,7 +638,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                             href={item.href}
                             target={item.href === "/now-playing" ? "_blank" : ""}
                             className={`flex items-center w-full px-4 py-3 rounded-xl transition-all duration-300 group ${isActive
-                              ? "bg-gradient-to-r from-red-600/20 to-transparent text-red-500 font-semibold border-l-2 border-red-500"
+                              ? "bg-white/[0.1] text-white font-semibold"
                               : "text-gray-300 hover:text-white hover:bg-white/5"
                               }`}
                             onClick={() => setIsSidebarOpen(false)}
@@ -689,7 +688,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                   <a href="/about" className="block mb-4 text-center text-xs text-white/40 hover:text-white/70 transition-colors">
                     HomeFlix · developed by <span className="text-white/70 font-semibold">Ferdous Azad</span>
                   </a>
-                  <a href="#" className="flex items-center justify-center gap-3 w-full px-4 py-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-500 hover:text-red-400 transition-all duration-300 font-semibold shadow-lg">
+                  <a href="#" className="flex items-center justify-center gap-3 w-full px-4 py-3 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-white transition-all duration-300 font-semibold shadow-lg">
                     <LogOut className="w-5 h-5" />
                     <span>Sign Out</span>
                   </a>
