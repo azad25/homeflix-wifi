@@ -9,6 +9,7 @@ import VideoPlayer from "@/components/VideoPlayer";
 import { WidgetManagementButton } from '@/components/widgets';
 import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 import ErrorBoundary from "@/components/ErrorBoundary";
+import TMDBShelf from "@/components/tv/TMDBShelf";
 
 export default function MoviesPage() {
   usePageTitle('Movies');
@@ -38,6 +39,12 @@ export default function MoviesPage() {
     <div className="min-h-screen bg-black text-white">
       <Navbar onSearch={() => {}} />
 
+      {/* Movies beyond the library (hover plays the trailer) */}
+      <div className="relative z-10 space-y-10 pt-24 md:space-y-12">
+        <TMDBShelf name="trending-movies" subtitle="This week on TMDB" />
+        <TMDBShelf name="now-playing" />
+      </div>
+
       {/* Widget System Integration */}
       <ErrorBoundary>
         <BackendWidgetRenderer 
@@ -45,6 +52,12 @@ export default function MoviesPage() {
           className="py-8 mt-12 px-3 md:px-6 lg:px-8"
         />
       </ErrorBoundary>
+
+      <div className="relative z-10 space-y-10 pb-20 md:space-y-12">
+        <TMDBShelf name="popular-movies" />
+        <TMDBShelf name="top-rated-movies" />
+        <TMDBShelf name="upcoming" subtitle="Add one and HomeFlix downloads it on release day" />
+      </div>
 
       {/* Video Player Modal */}
       {selectedMedia && (

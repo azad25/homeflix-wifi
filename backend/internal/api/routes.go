@@ -481,6 +481,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/tmdb/movie/now-playing", handlers.GetNowPlayingMoviesList(tmdbService))
 		api.GET("/tmdb/movie/upcoming", handlers.GetUpcomingMoviesList(tmdbService))
 		api.GET("/tmdb/movie/popular", handlers.GetPopularMoviesList(tmdbService))
+		api.GET("/tmdb/shelf/:name", handlers.GetTMDBShelf(tmdbService, db))
+		api.GET("/tmdb/trailer/:type/:id", handlers.GetTMDBTrailer(tmdbService))
 		api.GET("/tmdb/discover/movie", handlers.DiscoverMoviesByFilters(tmdbService))
 		api.GET("/tmdb/movie/:id/images", handlers.GetMovieImagesList(tmdbService))
 

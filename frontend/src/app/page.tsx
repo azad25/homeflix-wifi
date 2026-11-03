@@ -11,6 +11,7 @@ import { WidgetManagementButton } from '@/components/widgets';
 import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ForYouShelves from "@/components/tv/ForYouShelves";
+import TMDBShelf from "@/components/tv/TMDBShelf";
 
 // Memoized components for better performance
 const MemoizedHomeflixHero = React.memo(HomeflixHero);
@@ -120,6 +121,12 @@ export default function Home() {
           <ForYouShelves />
         </div>
       </ErrorBoundary>
+
+      {/* What everyone's watching (TMDB); hover plays the trailer */}
+      <div className="relative z-10 space-y-10 pt-10 md:space-y-12">
+        <TMDBShelf name="trending" subtitle="Movies and shows everyone's watching" />
+        <TMDBShelf name="now-playing" />
+      </div>
 
       {/* Widgets configured for the home page (Settings > Pages/Widgets).
           This was dropped by mistake in an unrelated commit, which left the
