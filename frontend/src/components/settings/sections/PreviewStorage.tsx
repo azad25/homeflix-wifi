@@ -172,7 +172,7 @@ export default function PreviewStorage() {
               </span>
             </div>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
-              <div className={`h-full rounded-full ${pct > 95 ? "bg-[#ffd60a]" : "bg-white/70"}`} style={{ width: `${pct}%` }} />
+              <div className={`h-full rounded-full ${pct > 95 ? "bg-danger" : "bg-white/70"}`} style={{ width: `${pct}%` }} />
             </div>
             <p className="mt-1.5 text-[12px] text-white/40">When full, clips of the titles nobody has looked at for the longest are removed; they're re-made on the next hover.</p>
           </div>

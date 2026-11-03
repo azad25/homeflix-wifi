@@ -151,7 +151,7 @@ export default function UpdatesSection() {
   ) : busy ? (
     <Badge tone="info">Updating…</Badge>
   ) : info.update_available ? (
-    <Badge tone="warning">{info.behind} new</Badge>
+    <Badge tone="info">{info.behind} new</Badge>
   ) : (
     <Badge tone="success">Up to date</Badge>
   );
@@ -251,7 +251,7 @@ function VersionTile({
           <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-white/45">
             <span className="font-mono">{commit.short}</span>
             {branch && (
-              <span className={`flex items-center gap-1 ${highlight ? "text-[#ffd84d]" : ""}`}>
+              <span className={`flex items-center gap-1 ${highlight ? "text-info" : ""}`}>
                 <GitBranch className="h-3 w-3" />
                 {branch}
               </span>
@@ -283,11 +283,11 @@ function UpdateProgress({ status }: { status: any }) {
         <span className="font-semibold text-white">
           {done ? "Update complete" : failed ? "Update failed" : PHASES[status.phase] || "Working"}
         </span>
-        {status.reconnecting && !done && <span className="text-[#ffd84d]">Server restarting - reconnecting…</span>}
+        {status.reconnecting && !done && <span className="text-info">Server restarting - reconnecting…</span>}
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
         <div
-          className={`h-full rounded-full transition-[width] duration-700 ${failed ? "bg-[#ff453a]" : done ? "bg-[#30d158]" : "bg-white"}`}
+          className={`h-full rounded-full transition-[width] duration-700 ${failed ? "bg-danger" : done ? "bg-success" : "bg-white"}`}
           style={{ width: `${pct}%` }}
         />
       </div>

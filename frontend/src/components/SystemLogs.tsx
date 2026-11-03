@@ -936,13 +936,13 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
             </h2>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${isLogsConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
+                <div className={`w-2 h-2 rounded-full ${isLogsConnected ? 'bg-success animate-pulse' : 'bg-danger'}`}></div>
                 <span className="text-white/70 text-sm">
                   Logs {isLogsConnected ? 'WebSocket' : 'Polling'}
                 </span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${isStatsConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
+                <div className={`w-2 h-2 rounded-full ${isStatsConnected ? 'bg-success animate-pulse' : 'bg-danger'}`}></div>
                 <span className="text-white/70 text-sm">
                   Stats {isStatsConnected ? 'WebSocket' : 'Polling'}
                 </span>
@@ -950,7 +950,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
               <button
                 onClick={clearAllCache}
                 title="Clear all cache data (pages, widgets, notifications)"
-                className="bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm transition-colors"
+                className="bg-danger/[0.14] hover:bg-danger/[0.24] text-danger px-3 py-2 rounded-lg flex items-center space-x-2 text-sm transition-colors"
               >
                 <DatabaseIcon className="w-4 h-4" />
                 <span>Clear Cache</span>
@@ -973,11 +973,11 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
 
           {/* Storage now has its own section (Settings > Storage) */}
           {showStorage && lowAlerts.length > 0 && (
-            <div className="mb-6 bg-red-900/30 border border-red-500/40 rounded-lg p-4">
+            <div className="mb-6 bg-danger/30 border border-danger/40 rounded-lg p-4">
               <div className="flex items-center space-x-3 mb-3">
-                <AlertTriangle className="w-6 h-6 text-red-400" />
-                <h3 className="text-red-300 font-semibold">Low Storage Warning</h3>
-                <span className="text-red-400/70 text-xs">Auto-failover will use other storage with free space</span>
+                <AlertTriangle className="w-6 h-6 text-danger" />
+                <h3 className="text-danger font-semibold">Low Storage Warning</h3>
+                <span className="text-danger/70 text-xs">Auto-failover will use other storage with free space</span>
               </div>
               <div className="space-y-2">
                 {lowAlerts.map((s, idx) => (
@@ -987,7 +987,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                       <span className="text-white/50 text-xs">{s.path} • {s.path_type || 'storage'}</span>
                     </div>
                     <div className="text-right">
-                      <div className="text-red-300 text-sm font-bold">{s.used_percent.toFixed(1)}% used</div>
+                      <div className="text-danger text-sm font-bold">{s.used_percent.toFixed(1)}% used</div>
                       <div className="text-white/60 text-xs">{(s.free / (1024**3)).toFixed(1)} GB free / {(s.total / (1024**3)).toFixed(1)} GB</div>
                     </div>
                   </div>
@@ -1004,23 +1004,23 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
             <div className="mb-6">
               <h3 className="text-white/80 text-sm font-medium mb-3 flex items-center">
                 <HardDrive className="w-4 h-4 mr-2 text-white/75" />
-                Storage Paths {lowAlerts.length > 0 && <span className="ml-2 text-red-400">({lowAlerts.length} low)</span>}
+                Storage Paths {lowAlerts.length > 0 && <span className="ml-2 text-danger">({lowAlerts.length} low)</span>}
                 <button onClick={fetchStorageStats} className="ml-auto text-white/50 hover:text-white text-xs px-2 py-1 bg-white/5 rounded">Refresh</button>
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {storageInfos.map((s, idx) => (
-                  <div key={idx} className={`rounded-lg p-3 border ${s.is_low ? 'bg-red-900/20 border-red-500/40' : 'bg-white/5 border-white/10'} `}>
+                  <div key={idx} className={`rounded-lg p-3 border ${s.is_low ? 'bg-danger/20 border-danger/40' : 'bg-white/5 border-white/10'} `}>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-white text-sm font-medium truncate" title={s.path}>{s.name || s.path.split('/').pop() || s.path}</span>
-                      {s.is_low && <AlertTriangle className="w-4 h-4 text-red-400 ml-2 flex-shrink-0" />}
+                      {s.is_low && <AlertTriangle className="w-4 h-4 text-danger ml-2 flex-shrink-0" />}
                     </div>
                     <div className="text-white/40 text-xs truncate mb-2" title={s.path}>{s.path}</div>
                     <div className="flex items-center justify-between mb-1">
-                      <span className={`text-lg font-bold ${s.is_low ? 'text-red-400' : 'text-white'}`}>{s.used_percent.toFixed(1)}%</span>
+                      <span className={`text-lg font-bold ${s.is_low ? 'text-danger' : 'text-white'}`}>{s.used_percent.toFixed(1)}%</span>
                       <span className="text-white/60 text-xs">{(s.free / (1024**3)).toFixed(1)} GB free</span>
                     </div>
                     <div className="w-full bg-white/[0.04] rounded-full h-2">
-                      <div className={`h-2 rounded-full ${s.is_low ? 'bg-red-500' : s.used_percent > 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${Math.min(100, s.used_percent)}%` }}></div>
+                      <div className={`h-2 rounded-full ${s.is_low ? 'bg-danger' : s.used_percent > 70 ? 'bg-danger' : 'bg-success'}`} style={{ width: `${Math.min(100, s.used_percent)}%` }}></div>
                     </div>
                     <div className="text-white/30 text-xs mt-1">{(s.used / (1024**3)).toFixed(1)} / {(s.total / (1024**3)).toFixed(1)} GB</div>
                   </div>
@@ -1049,8 +1049,8 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                     <AreaChart data={statsHistory}>
                       <defs>
                         <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
-                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#f5f5f7" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#f5f5f7" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
@@ -1058,20 +1058,20 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                       <YAxis domain={[0, 100]} hide />
                       <Tooltip
                         contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', color: '#fff' }}
-                        itemStyle={{ color: '#60a5fa' }}
+                        itemStyle={{ color: '#f5f5f7' }}
                         labelStyle={{ display: 'none' }}
                       />
-                      <Area type="monotone" dataKey="cpu" stroke="#3b82f6" fillOpacity={1} fill="url(#colorCpu)" />
+                      <Area type="monotone" dataKey="cpu" stroke="#f5f5f7" fillOpacity={1} fill="url(#colorCpu)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
               </div>
 
               {/* Memory Stats */}
-              <div className="bg-white/[0.05] rounded-lg p-4 border border-green-500/20 h-64 flex flex-col">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-success/20 h-64 flex flex-col">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-green-400 text-sm font-medium">Memory</div>
-                  <HardDrive className="w-5 h-5 text-green-400" />
+                  <div className="text-white text-sm font-medium">Memory</div>
+                  <HardDrive className="w-5 h-5 text-white" />
                 </div>
                 <div className="text-2xl font-bold text-white mb-1">
                   {systemStats.memory?.used_percent?.toFixed(1) || '0.0'}%
@@ -1084,8 +1084,8 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                     <AreaChart data={statsHistory}>
                       <defs>
                         <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#22c55e" stopOpacity={0.8} />
-                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#f5f5f7" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#f5f5f7" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
@@ -1093,10 +1093,10 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                       <YAxis domain={[0, 100]} hide />
                       <Tooltip
                         contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', color: '#fff' }}
-                        itemStyle={{ color: '#4ade80' }}
+                        itemStyle={{ color: '#f5f5f7' }}
                         labelStyle={{ display: 'none' }}
                       />
-                      <Area type="monotone" dataKey="memory" stroke="#22c55e" fillOpacity={1} fill="url(#colorMemory)" />
+                      <Area type="monotone" dataKey="memory" stroke="#f5f5f7" fillOpacity={1} fill="url(#colorMemory)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -1119,8 +1119,8 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                     <AreaChart data={statsHistory}>
                       <defs>
                         <linearGradient id="colorDisk" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#a855f7" stopOpacity={0.8} />
-                          <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#f5f5f7" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#f5f5f7" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
@@ -1128,10 +1128,10 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                       <YAxis domain={[0, 100]} hide />
                       <Tooltip
                         contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', color: '#fff' }}
-                        itemStyle={{ color: '#c084fc' }}
+                        itemStyle={{ color: '#f5f5f7' }}
                         labelStyle={{ display: 'none' }}
                       />
-                      <Area type="monotone" dataKey="disk" stroke="#a855f7" fillOpacity={1} fill="url(#colorDisk)" />
+                      <Area type="monotone" dataKey="disk" stroke="#f5f5f7" fillOpacity={1} fill="url(#colorDisk)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -1154,8 +1154,8 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                     <AreaChart data={statsHistory}>
                       <defs>
                         <linearGradient id="colorProcess" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f97316" stopOpacity={0.8} />
-                          <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#f5f5f7" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#f5f5f7" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
@@ -1163,10 +1163,10 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                       <YAxis domain={[0, 20]} hide /> {/* Process CPU often low, so set lower max for clearer graph */}
                       <Tooltip
                         contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', color: '#fff' }}
-                        itemStyle={{ color: '#fb923c' }}
+                        itemStyle={{ color: '#f5f5f7' }}
                         labelStyle={{ display: 'none' }}
                       />
-                      <Area type="monotone" dataKey="process" stroke="#f97316" fillOpacity={1} fill="url(#colorProcess)" />
+                      <Area type="monotone" dataKey="process" stroke="#f5f5f7" fillOpacity={1} fill="url(#colorProcess)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -1194,7 +1194,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                   </div>
                   <div>
                     <div className="text-xs text-white/60 mb-1">Sent</div>
-                    <div className="text-lg font-bold text-green-400">
+                    <div className="text-lg font-bold text-white">
                       {((systemStats.network.bytes_sent || 0) / (1024 ** 3)).toFixed(2)}GB
                     </div>
                     <div className="text-xs text-white/50">
@@ -1207,7 +1207,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
               <div className="bg-white/5 rounded-lg p-4 border border-white/10">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-white/80 text-sm font-medium">System Uptime</div>
-                  <Timer className="w-5 h-5 text-yellow-400" />
+                  <Timer className="w-5 h-5 text-white/50" />
                 </div>
                 <div className="text-lg font-bold text-white">
                   {systemStats.timestamp ? new Date(systemStats.timestamp).toLocaleString() : 'N/A'}
@@ -1231,7 +1231,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
             </h2>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${isTerminalConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
+                <div className={`w-2 h-2 rounded-full ${isTerminalConnected ? 'bg-success animate-pulse' : 'bg-danger'}`}></div>
                 <span className="text-white/70 text-sm">
                   {isTerminalConnected ? 'Connected' : 'Polling'}
                 </span>
@@ -1240,7 +1240,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                 <div className="flex items-center space-x-2">
                   <div className="w-32 h-2 bg-white/10 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-[#E50914] to-red-400 transition-all duration-300"
+                      className="h-full bg-gradient-to-r from-[var(--color-danger)] to-danger transition-all duration-300"
                       style={{ width: `${scanProgress}%` }}
                     />
                   </div>
@@ -1283,9 +1283,9 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                 {terminalLines.map((line, index) => (
                   <div
                     key={index}
-                    className={`flex items-start space-x-2 py-0.5 ${line.type === 'stderr' ? 'text-red-400' :
-                        line.type === 'warning' ? 'text-yellow-400' :
-                          line.type === 'success' ? 'text-green-400' :
+                    className={`flex items-start space-x-2 py-0.5 ${line.type === 'stderr' ? 'text-danger' :
+                        line.type === 'warning' ? 'text-danger' :
+                          line.type === 'success' ? 'text-success' :
                             line.type === 'progress' ? 'text-white/75' :
                               line.type === 'info' ? 'text-white/75' :
                                 'text-white/90'
@@ -1313,15 +1313,15 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                 <span>stdout</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 rounded-full bg-red-400"></div>
+                <div className="w-2 h-2 rounded-full bg-danger"></div>
                 <span>stderr</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 rounded-full bg-cyan-400"></div>
+                <div className="w-2 h-2 rounded-full bg-info"></div>
                 <span>info</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 rounded-full bg-blue-400"></div>
+                <div className="w-2 h-2 rounded-full bg-info"></div>
                 <span>progress</span>
               </div>
             </div>
@@ -1352,14 +1352,14 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Production Server */}
-            <div className="bg-white/[0.05] rounded-lg p-4 border border-green-500/20">
+            <div className="bg-white/[0.05] rounded-lg p-4 border border-success/20">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white flex items-center">
-                  <Server className="w-5 h-5 text-green-400 mr-2" />
+                  <Server className="w-5 h-5 text-white mr-2" />
                   Production Server
                 </h3>
                 <div className="flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${serverStatus?.production?.backend ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${serverStatus?.production?.backend ? 'bg-success' : 'bg-danger'}`}></div>
                   <span className="text-white/70 text-xs">
                     {serverStatus?.production?.backend ? 'Running' : 'Stopped'}
                   </span>
@@ -1369,13 +1369,13 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
               <div className="space-y-2 mb-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/60">Frontend (3008):</span>
-                  <span className={serverStatus?.production?.frontend ? 'text-green-400' : 'text-red-400'}>
+                  <span className={serverStatus?.production?.frontend ? 'text-success' : 'text-danger'}>
                     {serverStatus?.production?.frontend ? '● Running' : '○ Stopped'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/60">Backend (8252):</span>
-                  <span className={serverStatus?.production?.backend ? 'text-green-400' : 'text-red-400'}>
+                  <span className={serverStatus?.production?.backend ? 'text-success' : 'text-danger'}>
                     {serverStatus?.production?.backend ? '● Running' : '○ Stopped'}
                   </span>
                 </div>
@@ -1383,15 +1383,15 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
 
               {/* Server URLs */}
               {serverStatus?.production && (serverStatus.production.frontend || serverStatus.production.backend) && (
-                <div className="mb-4 p-3 bg-white/[0.04] rounded-lg border border-green-500/20">
-                  <div className="text-green-400 text-xs font-medium mb-2">🌐 Server URLs:</div>
+                <div className="mb-4 p-3 bg-white/[0.04] rounded-lg border border-success/20">
+                  <div className="text-white text-xs font-medium mb-2">🌐 Server URLs:</div>
                   {serverStatus.production.frontend && (
                     <div className="mb-1">
                       <a 
                         href={serverStatus.production.urls.frontend} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="text-green-300 hover:text-green-200 text-xs underline"
+                        className="text-white/80 hover:text-white text-xs underline"
                       >
                         📱 Frontend: {serverStatus.production.urls.frontend}
                       </a>
@@ -1403,7 +1403,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                         href={serverStatus.production.urls.backend} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="text-green-300 hover:text-green-200 text-xs underline"
+                        className="text-white/80 hover:text-white text-xs underline"
                       >
                         🔧 Backend: {serverStatus.production.urls.backend}
                       </a>
@@ -1426,7 +1426,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                   onClick={() => serverAction('stop', 'production')}
                   disabled={isServerActionLoading}
                   title="Stop production server"
-                  className="flex-1 bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
+                  className="flex-1 bg-danger/[0.14] hover:bg-danger/[0.24] text-danger px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <Square className="w-4 h-4" />
                   <span>Stop</span>
@@ -1480,7 +1480,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                   Development Server
                 </h3>
                 <div className="flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${serverStatus?.development?.backend ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${serverStatus?.development?.backend ? 'bg-success' : 'bg-danger'}`}></div>
                   <span className="text-white/70 text-xs">
                     {serverStatus?.development?.backend ? 'Running' : 'Stopped'}
                   </span>
@@ -1490,13 +1490,13 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
               <div className="space-y-2 mb-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/60">Frontend (3009):</span>
-                  <span className={serverStatus?.development?.frontend ? 'text-green-400' : 'text-red-400'}>
+                  <span className={serverStatus?.development?.frontend ? 'text-success' : 'text-danger'}>
                     {serverStatus?.development?.frontend ? '● Running' : '○ Stopped'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/60">Backend (8253):</span>
-                  <span className={serverStatus?.development?.backend ? 'text-green-400' : 'text-red-400'}>
+                  <span className={serverStatus?.development?.backend ? 'text-success' : 'text-danger'}>
                     {serverStatus?.development?.backend ? '● Running' : '○ Stopped'}
                   </span>
                 </div>
@@ -1547,7 +1547,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                   onClick={() => serverAction('stop', 'dev')}
                   disabled={isServerActionLoading}
                   title="Stop development server"
-                  className="flex-1 bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
+                  className="flex-1 bg-danger/[0.14] hover:bg-danger/[0.24] text-danger px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <Square className="w-4 h-4" />
                   <span>Stop</span>
@@ -1614,10 +1614,10 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
             <div className="flex items-center space-x-2">
               <div className={`w-2 h-2 rounded-full ${
                 isTerminalAuthenticated && commandWebSocket?.readyState === WebSocket.OPEN 
-                  ? 'bg-green-400 animate-pulse' 
+                  ? 'bg-success animate-pulse' 
                   : isAuthenticating 
-                    ? 'bg-yellow-400 animate-pulse' 
-                    : 'bg-red-400'
+                    ? 'bg-danger animate-pulse' 
+                    : 'bg-danger'
               }`}></div>
               <span className="text-white/70 text-sm">
                 {isTerminalAuthenticated && commandWebSocket?.readyState === WebSocket.OPEN
@@ -1631,10 +1631,10 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
           </div>
 
           {!isTerminalAuthenticated ? (
-            <div className="bg-white/[0.05] rounded-lg p-6 border border-yellow-500/20 mb-4">
+            <div className="bg-white/[0.05] rounded-lg p-6 border border-danger/20 mb-4">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center space-x-2">
-                  <div className="text-yellow-400 text-2xl">🔐</div>
+                  <div className="text-danger text-2xl">🔐</div>
                   <div>
                     <h3 className="text-lg font-semibold text-white">Terminal Access Required</h3>
                     <p className="text-white/60 text-sm mt-1">Enter password to enable terminal command execution</p>
@@ -1654,10 +1654,10 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                     onKeyPress={(e) => e.key === 'Enter' && !isAuthenticating && authenticateTerminal()}
                     placeholder="Enter password..."
                     disabled={isAuthenticating}
-                    className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white placeholder-white/35 focus:border-yellow-400 focus:outline-none transition-colors disabled:opacity-50"
+                    className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white placeholder-white/35 focus:border-danger focus:outline-none transition-colors disabled:opacity-50"
                   />
                   {passwordError && (
-                    <div className="text-red-400 text-xs mt-2 space-y-2">
+                    <div className="text-danger text-xs mt-2 space-y-2">
                       <p>⚠️ {passwordError}</p>
                       {passwordError.includes('connection') && (
                         <MagneticButton
@@ -1675,8 +1675,8 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                     </div>
                   )}
                   {isAuthenticating && (
-                    <p className="text-yellow-400 text-xs mt-2 flex items-center">
-                      <div className="animate-spin w-3 h-3 border border-yellow-400 border-t-transparent rounded-full mr-2"></div>
+                    <p className="text-danger text-xs mt-2 flex items-center">
+                      <div className="animate-spin w-3 h-3 border border-danger border-t-transparent rounded-full mr-2"></div>
                       Authenticating...
                     </p>
                   )}
@@ -1688,7 +1688,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                 >
                   {isAuthenticating ? (
                     <>
-                      <div className="animate-spin w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full"></div>
+                      <div className="animate-spin w-4 h-4 border-2 border-danger border-t-transparent rounded-full"></div>
                       <span>Authenticating...</span>
                     </>
                   ) : (
@@ -1745,7 +1745,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                     setPasswordError('');
                     addTerminalOutput('🔓 Terminal session closed by user');
                   }}
-                  className="bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-4 py-2 rounded-lg flex items-center space-x-2"
+                  className="bg-danger/[0.14] hover:bg-danger/[0.24] text-danger px-4 py-2 rounded-lg flex items-center space-x-2"
                 >
                   <span>🔒 Lock Terminal</span>
                 </MagneticButton>
@@ -1883,9 +1883,9 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
               </div>
 
               {/* GPU Information */}
-              <div className="bg-white/[0.05] rounded-lg p-4 border border-green-500/20">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-success/20">
                 <div className="flex items-center mb-3">
-                  <Monitor className="w-5 h-5 text-green-400 mr-2" />
+                  <Monitor className="w-5 h-5 text-white mr-2" />
                   <h3 className="text-lg font-semibold text-white">GPU</h3>
                 </div>
                 <div className="space-y-2 text-sm">
@@ -2108,7 +2108,7 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                     addTerminalOutput(`🚨 Force refresh failed: ${error}`);
                   }
                 }}
-                className="bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                className="bg-danger/[0.14] hover:bg-danger/[0.24] text-danger px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
               >
                 <Zap className="w-4 h-4" />
                 <span>Force Refresh</span>
@@ -2153,8 +2153,8 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                 {filteredLogs.map((log, index) => (
                   <div
                     key={index}
-                    className={`flex items-start space-x-3 py-1 px-2 rounded hover:bg-white/5 transition-colors ${log.level === 'ERROR' || log.level === 'FATAL' ? 'bg-red-500/10' :
-                      log.level === 'WARN' ? 'bg-yellow-500/10' :
+                    className={`flex items-start space-x-3 py-1 px-2 rounded hover:bg-white/5 transition-colors ${log.level === 'ERROR' || log.level === 'FATAL' ? 'bg-danger/10' :
+                      log.level === 'WARN' ? 'bg-danger/10' :
                         log.level === 'DEBUG' ? 'bg-white/[0.05]' :
                           ''
                       }`}
@@ -2162,10 +2162,10 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
                     <span className="text-white/40 text-xs whitespace-nowrap">
                       {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '--:--:--'}
                     </span>
-                    <span className={`text-xs font-bold whitespace-nowrap ${log.level === 'ERROR' || log.level === 'FATAL' ? 'text-red-400' :
-                      log.level === 'WARN' ? 'text-yellow-400' :
+                    <span className={`text-xs font-bold whitespace-nowrap ${log.level === 'ERROR' || log.level === 'FATAL' ? 'text-danger' :
+                      log.level === 'WARN' ? 'text-danger' :
                         log.level === 'DEBUG' ? 'text-white/75' :
-                          'text-green-400'
+                          'text-success'
                       }`}>
                       {log.level || 'INFO'}
                     </span>
@@ -2184,19 +2184,19 @@ export default function SystemLogs({ onTerminalOutput, showStorage = true }: Sys
           <div className="mt-4 flex items-center justify-between text-xs text-white/60">
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 rounded-full bg-green-400"></div>
+                <div className="w-2 h-2 rounded-full bg-success"></div>
                 <span>INFO</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 rounded-full bg-yellow-400"></div>
+                <div className="w-2 h-2 rounded-full bg-danger"></div>
                 <span>WARN</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 rounded-full bg-red-400"></div>
+                <div className="w-2 h-2 rounded-full bg-danger"></div>
                 <span>ERROR</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 rounded-full bg-blue-400"></div>
+                <div className="w-2 h-2 rounded-full bg-info"></div>
                 <span>DEBUG</span>
               </div>
             </div>

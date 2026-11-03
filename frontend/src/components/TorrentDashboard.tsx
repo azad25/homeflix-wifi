@@ -540,10 +540,10 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'completed': return 'text-green-400';
+      case 'completed': return 'text-success';
       case 'downloading': return 'text-white/75';
-      case 'paused': return 'text-yellow-400';
-      case 'error': return 'text-red-400';
+      case 'paused': return 'text-white/60';
+      case 'error': return 'text-danger';
       default: return 'text-white/60';
     }
   };
@@ -590,7 +590,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               Searching for: <span className="text-white font-medium">{mediaInfo.title}</span>
               <span className="ml-2 text-white/75">({mediaInfo.media_type === 'tv' ? 'TV Series' : 'Movie'})</span>
             </div>
-            <div className="text-xs mt-1 text-green-400">
+            <div className="text-xs mt-1 text-success">
               ✨ {mediaInfo.media_type === 'tv'
                 ? 'TV series search includes all seasons automatically for comprehensive results'
                 : 'Movie search optimized for better results (year removed)'}
@@ -717,7 +717,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-white font-medium line-clamp-1 text-sm">{result.title}</h3>
                         {result.verified && (
-                          <span className="bg-green-600/20 text-green-400 text-[10px] px-2 py-0.5 rounded-full border border-green-500/30">
+                          <span className="bg-success/20 text-success text-[10px] px-2 py-0.5 rounded-full border border-success/30">
                             Verified
                           </span>
                         )}
@@ -732,7 +732,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                           {result.size}
                         </span>
                         <span className="flex items-center gap-1">
-                          <Upload className="w-4 h-4 text-green-400" />
+                          <Upload className="w-4 h-4 text-success" />
                           {result.seeders}
                         </span>
                         <span className="flex items-center gap-1">
@@ -943,7 +943,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-white/70 flex items-center gap-1">
-                        <Download className="w-4 h-4 text-green-400" />
+                        <Download className="w-4 h-4 text-success" />
                         Download Speed
                       </span>
                       <span className="text-sm font-medium text-white">
@@ -955,8 +955,8 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                         <div
                           className={`h-2 rounded-full transition-all duration-300 ${
                             bandwidthStats.total_download_rate > bandwidthStats.download_limit
-                              ? 'bg-red-500'
-                              : 'bg-green-500'
+                              ? 'bg-danger'
+                              : 'bg-success'
                           }`}
                           style={{
                             width: `${Math.min(100, (bandwidthStats.total_download_rate / bandwidthStats.download_limit) * 100)}%`
@@ -984,7 +984,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                         <div
                           className={`h-2 rounded-full transition-all duration-300 ${
                             bandwidthStats.total_upload_rate > bandwidthStats.upload_limit
-                              ? 'bg-red-500'
+                              ? 'bg-danger'
                               : 'bg-white/[0.14]'
                           }`}
                           style={{
@@ -1085,7 +1085,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 <div className="flex items-center justify-between text-sm text-white/60">
                   <div className="flex items-center gap-4">
                     <span className="flex items-center gap-1">
-                      <Download className="w-4 h-4 text-green-400" />
+                      <Download className="w-4 h-4 text-success" />
                       {formatSpeed(download.download_rate)}
                     </span>
                     <span className="flex items-center gap-1">
@@ -1397,7 +1397,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
             {/* Speed Limit Settings Section */}
             <div className="col-span-full">
               <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
-                <Download className="w-5 h-5 text-green-400" />
+                <Download className="w-5 h-5 text-success" />
                 Speed Limits (Bandwidth Control)
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-black/50 rounded-lg border border-white/10">
@@ -1411,14 +1411,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     max="1000000"
                     value={config.download_speed_limit || 0}
                     onChange={(e) => setConfig({ ...config, download_speed_limit: parseInt(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-green-500"
+                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-success"
                     placeholder="0 = Unlimited"
                   />
                   <p className="text-xs text-white/60 mt-1">
                     0 = Unlimited | 1024 KB/s = 1 MB/s | 10240 KB/s = 10 MB/s
                   </p>
                   {config.download_speed_limit > 0 && (
-                    <p className="text-xs text-green-400 mt-1">
+                    <p className="text-xs text-success mt-1">
                       Current limit: {(config.download_speed_limit / 1024).toFixed(1)} MB/s
                     </p>
                   )}
@@ -1434,14 +1434,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     max="1000000"
                     value={config.upload_speed_limit || 0}
                     onChange={(e) => setConfig({ ...config, upload_speed_limit: parseInt(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-green-500"
+                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-success"
                     placeholder="0 = Unlimited"
                   />
                   <p className="text-xs text-white/60 mt-1">
                     0 = Unlimited | 512 KB/s = 0.5 MB/s | 1024 KB/s = 1 MB/s
                   </p>
                   {config.upload_speed_limit > 0 && (
-                    <p className="text-xs text-green-400 mt-1">
+                    <p className="text-xs text-success mt-1">
                       Current limit: {(config.upload_speed_limit / 1024).toFixed(1)} MB/s
                     </p>
                   )}
@@ -1455,7 +1455,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => setConfig({ ...config, download_speed_limit: 0, upload_speed_limit: 0 })}
-                      className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs transition-colors"
+                      className="px-3 py-1 bg-white/[0.12] hover:bg-white hover:text-black text-white rounded text-xs transition-colors"
                     >
                       Unlimited
                     </button>
@@ -1487,12 +1487,12 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 </div>
               </div>
 
-              <div className="mt-3 p-3 bg-green-600/20 border border-green-500/30 rounded-lg text-green-300 text-sm">
-                <p className="text-sm text-green-200">
+              <div className="mt-3 p-3 bg-success/20 border border-success/30 rounded-lg text-success text-sm">
+                <p className="text-sm text-success">
                   <strong>🚀 Speed Control:</strong> Speed limits are saved in configuration but not actively enforced by the torrent client.
                   The Rain torrent library doesn't support runtime speed limiting. Consider using external tools:
                 </p>
-                <ul className="text-xs text-green-300 mt-2 ml-4 space-y-1">
+                <ul className="text-xs text-success mt-2 ml-4 space-y-1">
                   <li>• Linux: <code>tc</code> (traffic control) for network interface limiting</li>
                   <li>• Router: QoS settings for device-level bandwidth control</li>
                   <li>• Network: Bandwidth limiting at switch/firewall level</li>
@@ -1517,7 +1517,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               <button
                 onClick={testJackettConnection}
                 disabled={loading || !config?.jackett_url || !config?.jackett_api_key}
-                className="px-6 py-2 bg-white/[0.14] hover:bg-blue-700 disabled:bg-white/10 disabled:text-white/40 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                className="px-6 py-2 bg-white text-black hover:bg-white/85 disabled:bg-white/10 disabled:text-white/40 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
               >
                 {loading ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>

@@ -227,7 +227,7 @@ export default function StorageSection() {
                     <div className="mt-2 max-w-md">
                       <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
                         <div
-                          className={`h-full rounded-full ${info.is_low ? "bg-[#ff453a]" : info.used_percent > 80 ? "bg-[#ffd60a]" : "bg-white/70"}`}
+                          className={`h-full rounded-full ${info.is_low ? "bg-danger" : info.used_percent > 80 ? "bg-danger/60" : "bg-white/70"}`}
                           style={{ width: `${Math.min(100, info.used_percent)}%` }}
                         />
                       </div>

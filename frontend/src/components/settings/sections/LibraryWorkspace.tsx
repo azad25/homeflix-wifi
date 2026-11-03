@@ -218,12 +218,12 @@ addTerminalOutput: (message: string) => void;
           <button
             onClick={handleClearAllSubtitles}
             disabled={clearingAll}
-            className="text-red-400 hover:text-red-300 text-xs px-2 py-1 rounded bg-red-400/10 hover:bg-red-400/20 transition-colors duration-200 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="text-danger hover:text-danger text-xs px-2 py-1 rounded bg-danger/10 hover:bg-danger/20 transition-colors duration-200 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
             title="Delete all subtitles for this media"
           >
             {clearingAll ? (
               <>
-                <div className="animate-spin rounded-full h-3 w-3 border-b border-red-400"></div>
+                <div className="animate-spin rounded-full h-3 w-3 border-b border-danger"></div>
                 <span>Clearing...</span>
               </>
             ) : (
@@ -259,7 +259,7 @@ addTerminalOutput: (message: string) => void;
                 </button>
                 <button
                   onClick={() => handleDeleteSubtitle(subtitle.id)}
-                  className="text-red-400 hover:text-red-300 p-1"
+                  className="text-danger hover:text-danger p-1"
                   title="Delete subtitle"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -2658,7 +2658,7 @@ export default function LibraryWorkspace({ view }: { view: "media" | "subtitles"
                                   <div className="flex items-center space-x-2 mt-2">
                                     {selectedMedia.rating && (
                                       <div className="flex items-center space-x-1">
-                                        <Star className="w-4 h-4 text-yellow-500" />
+                                        <Star className="w-4 h-4 fill-white text-white" />
                                         <span className="text-white/80">{selectedMedia.rating}</span>
                                       </div>
                                     )}
@@ -2723,7 +2723,7 @@ export default function LibraryWorkspace({ view }: { view: "media" | "subtitles"
                                 <MagneticButton
                                   onClick={handleDeleteMedia}
                                   disabled={actionLoading.delete}
-                                  className="bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-4 py-2 rounded-lg flex items-center space-x-2 transition-all duration-300"
+                                  className="bg-danger/[0.14] hover:bg-danger/[0.24] text-danger px-4 py-2 rounded-lg flex items-center space-x-2 transition-all duration-300"
                                   title="Delete Media (Permanent)"
                                 >
                                   {actionLoading.delete ? (
@@ -2903,7 +2903,7 @@ export default function LibraryWorkspace({ view }: { view: "media" | "subtitles"
                               <MagneticButton
                                 onClick={handleDeleteMedia}
                                 disabled={actionLoading.delete}
-                                className="bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-4 py-2 rounded-lg flex items-center space-x-2 border border-red-600/30"
+                                className="bg-danger/[0.14] hover:bg-danger/[0.24] text-danger px-4 py-2 rounded-lg flex items-center space-x-2 border border-danger/30"
                               >
                                 {actionLoading.delete ? (
                                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
@@ -2998,7 +2998,7 @@ export default function LibraryWorkspace({ view }: { view: "media" | "subtitles"
                                         />
                                       ) : (
                                         <p className="text-white bg-white/5 rounded-lg px-4 py-2 flex items-center">
-                                          <Star className="w-4 h-4 text-yellow-500 mr-1" />
+                                          <Star className="w-4 h-4 fill-white text-white mr-1" />
                                           {selectedMedia.rating || 'Unrated'}
                                         </p>
                                       )}
@@ -3136,12 +3136,12 @@ export default function LibraryWorkspace({ view }: { view: "media" | "subtitles"
                                                 }
                                               }
                                               return isValid ? (
-                                                <span className="text-green-400 flex items-center gap-1">
+                                                <span className="text-success flex items-center gap-1">
                                                   <Video className="w-3 h-3" />
                                                   Valid YouTube URL
                                                 </span>
                                               ) : (
-                                                <span className="text-yellow-400">
+                                                <span className="text-danger">
                                                   ⚠️ Please enter a valid YouTube URL
                                                 </span>
                                               );
@@ -3645,7 +3645,7 @@ export default function LibraryWorkspace({ view }: { view: "media" | "subtitles"
                                                 <span>📥 {subtitle.attributes?.download_count || 0} downloads</span>
                                                 <span>⭐ {subtitle.attributes?.ratings?.toFixed(1) || 'N/A'}</span>
                                                 {subtitle.attributes?.hearing_impaired && (
-                                                  <span className="text-yellow-400">🔊 CC</span>
+                                                  <span className="text-info">🔊 CC</span>
                                                 )}
                                                 {subtitle.attributes?.hd && (
                                                   <span className="text-white/75">🎬 HD</span>
@@ -3866,10 +3866,10 @@ export default function LibraryWorkspace({ view }: { view: "media" | "subtitles"
                                             <span>⭐ {subtitleData.rating?.toFixed(1) || 'N/A'}</span>
                                             <span>👍 {subtitleData.votes}</span>
                                             {subtitleData.hearing_impaired && (
-                                              <span className="text-yellow-400">🔊 CC</span>
+                                              <span className="text-info">🔊 CC</span>
                                             )}
                                             {subtitleData.hd && (
-                                              <span className="text-green-400">🎬 HD</span>
+                                              <span className="text-success">🎬 HD</span>
                                             )}
                                           </div>
                                           {subtitleData.release && (
@@ -3937,9 +3937,9 @@ export default function LibraryWorkspace({ view }: { view: "media" | "subtitles"
                         {/* Help Section */}
                         <div className="mt-6 space-y-4">
                           {!selectedMedia && (
-                            <div className="bg-yellow-600/10 border border-yellow-600/20 rounded-lg p-4">
-                              <h4 className="text-yellow-300 font-medium mb-2">📌 Select Media First</h4>
-                              <p className="text-yellow-300/80 text-sm">
+                            <div className="bg-info/10 border border-info/25 rounded-lg p-4">
+                              <h4 className="text-info font-medium mb-2">📌 Select Media First</h4>
+                              <p className="text-white/70 text-sm">
                                 To add subtitles to your media library, first select a media item from the "Media Library" tab.
                                 You can still download SRT files directly to your computer without selecting media.
                               </p>
@@ -4027,9 +4027,9 @@ export default function LibraryWorkspace({ view }: { view: "media" | "subtitles"
                         </h3>
 
                         <div className="space-y-4">
-                          <div className="bg-yellow-600/10 border border-yellow-600/20 rounded-lg p-4">
-                            <h4 className="text-yellow-300 font-medium mb-2">⚙️ OpenSubtitles API Configuration</h4>
-                            <p className="text-yellow-300/80 text-sm mb-3">
+                          <div className="bg-info/10 border border-info/25 rounded-lg p-4">
+                            <h4 className="text-info font-medium mb-2">⚙️ OpenSubtitles API Configuration</h4>
+                            <p className="text-white/70 text-sm mb-3">
                               To use OpenSubtitles integration, configure the following environment variables:
                             </p>
                             <div className="bg-white/[0.04] rounded p-3 font-mono text-sm text-white/80">
@@ -4037,7 +4037,7 @@ export default function LibraryWorkspace({ view }: { view: "media" | "subtitles"
                               <div>OPENSUB_USERNAME=your_username</div>
                               <div>OPENSUB_PASSWORD=your_password</div>
                             </div>
-                            <p className="text-yellow-300/80 text-xs mt-2">
+                            <p className="text-white/70 text-xs mt-2">
                               Get your API key from: <a href="https://www.opensubtitles.com/en/profile/api" target="_blank" rel="noopener noreferrer" className="underline">OpenSubtitles.com</a>
                             </p>
                           </div>

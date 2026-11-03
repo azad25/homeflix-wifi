@@ -134,7 +134,7 @@ export function Button({
     primary: "bg-[#f5f5f7] text-black hover:bg-white",
     secondary: "bg-white/[0.12] text-white hover:bg-white/[0.2]",
     ghost: "text-white/75 hover:bg-white/[0.08] hover:text-white",
-    danger: "bg-red-500/[0.14] text-red-300 hover:bg-red-500/[0.24]",
+    danger: "bg-danger/[0.14] text-danger hover:bg-danger/[0.24]",
   };
   return (
     <button
@@ -177,7 +177,7 @@ export function Toggle({
       onClick={() => onChange(!checked)}
       className={cx(
         "relative inline-flex h-[31px] w-[51px] shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:opacity-45",
-        checked ? "bg-[#30d158]" : "bg-white/[0.16]"
+        checked ? "bg-success" : "bg-white/[0.16]"
       )}
     >
       <span
@@ -193,10 +193,10 @@ export function Toggle({
 type Tone = "neutral" | "success" | "warning" | "danger" | "info";
 const toneText: Record<Tone, string> = {
   neutral: "bg-white/[0.1] text-white/75",
-  success: "bg-[#30d158]/[0.15] text-[#5be07f]",
-  warning: "bg-[#ffd60a]/[0.14] text-[#ffd84d]",
-  danger: "bg-[#ff453a]/[0.15] text-[#ff7b73]",
-  info: "bg-[#0a84ff]/[0.16] text-[#5eadff]",
+  success: "bg-success/[0.15] text-success",
+  warning: "bg-danger/[0.14] text-danger",
+  danger: "bg-danger/[0.15] text-danger",
+  info: "bg-info/[0.16] text-info",
 };
 
 export function Badge({ tone = "neutral", children, className }: { tone?: Tone; children: React.ReactNode; className?: string }) {
@@ -211,10 +211,10 @@ export function Badge({ tone = "neutral", children, className }: { tone?: Tone; 
 export function Dot({ tone = "neutral" }: { tone?: Tone }) {
   const c: Record<Tone, string> = {
     neutral: "bg-white/40",
-    success: "bg-[#30d158]",
-    warning: "bg-[#ffd60a]",
-    danger: "bg-[#ff453a]",
-    info: "bg-[#0a84ff]",
+    success: "bg-success",
+    warning: "bg-danger",
+    danger: "bg-danger",
+    info: "bg-info",
   };
   return <span className={cx("inline-block h-2 w-2 shrink-0 rounded-full", c[tone])} />;
 }
@@ -297,7 +297,7 @@ export function ActionTile({
       <span
         className={cx(
           "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl [&>svg]:h-5 [&>svg]:w-5",
-          danger ? "bg-[#ff453a]/[0.14] text-[#ff7b73]" : "bg-white/[0.09] text-white/85"
+          danger ? "bg-danger/[0.14] text-danger" : "bg-white/[0.09] text-white/85"
         )}
       >
         {loading ? <Loader2 className="animate-spin" /> : icon}
@@ -334,10 +334,10 @@ export function EmptyState({
 export function Notice({ tone = "info", title, children, action }: { tone?: Tone; title?: React.ReactNode; children?: React.ReactNode; action?: React.ReactNode }) {
   const ring: Record<Tone, string> = {
     neutral: "bg-white/[0.05] ring-white/10",
-    success: "bg-[#30d158]/[0.08] ring-[#30d158]/25",
-    warning: "bg-[#ffd60a]/[0.07] ring-[#ffd60a]/25",
-    danger: "bg-[#ff453a]/[0.08] ring-[#ff453a]/25",
-    info: "bg-[#0a84ff]/[0.08] ring-[#0a84ff]/25",
+    success: "bg-success/[0.08] ring-success/25",
+    warning: "bg-danger/[0.07] ring-danger/25",
+    danger: "bg-danger/[0.08] ring-danger/25",
+    info: "bg-info/[0.08] ring-info/25",
   };
   return (
     <div className={cx("flex flex-col gap-3 rounded-2xl p-4 ring-1 ring-inset sm:flex-row sm:items-center", ring[tone])}>

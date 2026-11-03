@@ -89,8 +89,8 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-red-500/20 to-red-600/20 backdrop-blur-sm border border-red-400/20 rounded-xl flex items-center justify-center">
-                    <Layout className="w-5 h-5 text-red-200" />
+                  <div className="w-10 h-10 bg-gradient-to-br from-white/20 to-white/20 backdrop-blur-sm border border-white/20 rounded-xl flex items-center justify-center">
+                    <Layout className="w-5 h-5 text-white" />
                   </div>
                   Widget Management
                 </h2>
@@ -101,7 +101,7 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
               
               <button
                 onClick={() => setViewMode('performance')}
-                className="flex items-center gap-2 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 backdrop-blur-sm border border-red-400/20 text-red-200 rounded-xl transition-all duration-200 hover:scale-105"
+                className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/20 text-white rounded-xl transition-all duration-200 hover:scale-105"
               >
                 <BarChart3 className="w-4 h-4" />
                 Performance
@@ -116,22 +116,22 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
                   onClick={() => handlePageSelect(page.id)}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className="group relative p-6 bg-white/10 hover:bg-white/15 backdrop-blur-sm border border-white/20 hover:border-red-400/40 rounded-2xl transition-all duration-200 text-left"
+                  className="group relative p-6 bg-white/10 hover:bg-white/15 backdrop-blur-sm border border-white/20 hover:border-white/40 rounded-2xl transition-all duration-200 text-left"
                 >
                   {/* Background gradient */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-red-600/10 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-white/10 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                   
                   <div className="relative">
                     {/* Icon */}
-                    <div className="w-12 h-12 bg-gradient-to-br from-white/15 to-white/10 backdrop-blur-sm border border-white/20 group-hover:border-red-400/40 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-all duration-200">
-                      <div className="text-white/90 group-hover:text-red-200 transition-colors">
+                    <div className="w-12 h-12 bg-gradient-to-br from-white/15 to-white/10 backdrop-blur-sm border border-white/20 group-hover:border-white/40 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-all duration-200">
+                      <div className="text-white/90 group-hover:text-white transition-colors">
                         {page.icon}
                       </div>
                     </div>
                     
                     {/* Content */}
                     <div className="space-y-2">
-                      <h3 className="text-lg font-semibold text-white/95 group-hover:text-red-200 transition-colors">
+                      <h3 className="text-lg font-semibold text-white/95 group-hover:text-white transition-colors">
                         {page.name}
                       </h3>
                       <p className="text-sm text-white/75 group-hover:text-white/90 transition-colors">
@@ -141,8 +141,8 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
                     
                     {/* Action indicator */}
                     <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                      <div className="w-8 h-8 bg-red-500/20 backdrop-blur-sm border border-red-400/30 rounded-lg flex items-center justify-center">
-                        <Settings className="w-4 h-4 text-red-200" />
+                      <div className="w-8 h-8 bg-white/20 backdrop-blur-sm border border-white/30 rounded-lg flex items-center justify-center">
+                        <Settings className="w-4 h-4 text-white" />
                       </div>
                     </div>
                   </div>
@@ -177,8 +177,8 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
                   }
                 ].map((feature, index) => (
                   <div key={index} className="text-center group">
-                    <div className="w-10 h-10 bg-white/15 hover:bg-red-500/20 backdrop-blur-sm border border-white/20 hover:border-red-400/30 rounded-xl flex items-center justify-center mx-auto mb-3 transition-all duration-200">
-                      <div className="text-white/90 group-hover:text-red-200 transition-colors">
+                    <div className="w-10 h-10 bg-white/15 hover:bg-white/20 backdrop-blur-sm border border-white/20 hover:border-white/30 rounded-xl flex items-center justify-center mx-auto mb-3 transition-all duration-200">
+                      <div className="text-white/90 group-hover:text-white transition-colors">
                         {feature.icon}
                       </div>
                     </div>
@@ -189,14 +189,14 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
               </div>
               
               {/* New Notification Widget Feature */}
-              <div className="mt-6 p-4 bg-gradient-to-r from-red-500/10 to-red-600/10 border border-red-400/20 rounded-xl">
+              <div className="mt-6 p-4 bg-gradient-to-r from-white/10 to-white/10 border border-white/20 rounded-xl">
                 <div className="flex items-center gap-3 mb-2">
-                  <div className="w-8 h-8 bg-red-500/20 backdrop-blur-sm border border-red-400/30 rounded-lg flex items-center justify-center">
-                    <Sparkles className="w-4 h-4 text-red-200" />
+                  <div className="w-8 h-8 bg-white/20 backdrop-blur-sm border border-white/30 rounded-lg flex items-center justify-center">
+                    <Sparkles className="w-4 h-4 text-white" />
                   </div>
-                  <h4 className="font-semibold text-red-200">New: Smart Notification Widget</h4>
+                  <h4 className="font-semibold text-white">New: Smart Notification Widget</h4>
                 </div>
-                <p className="text-sm text-red-200/80 mb-3">
+                <p className="text-sm text-white/70 mb-3">
                   Display real-time notifications for new content, TMDB updates, trending movies, and personalized recommendations with beautiful cinematic presentation.
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -207,7 +207,7 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
                     'Smart Curation',
                     'Multiple Types'
                   ].map((tag) => (
-                    <span key={tag} className="px-2 py-1 bg-red-500/20 border border-red-400/30 rounded text-xs text-red-200">
+                    <span key={tag} className="px-2 py-1 bg-white/20 border border-white/30 rounded text-xs text-white">
                       {tag}
                     </span>
                   ))}
@@ -238,7 +238,7 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
               
               <div className="flex-1">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-red-500/20 to-red-600/20 backdrop-blur-sm border border-red-400/20 rounded-xl flex items-center justify-center">
+                  <div className="w-10 h-10 bg-gradient-to-br from-white/20 to-white/20 backdrop-blur-sm border border-white/20 rounded-xl flex items-center justify-center">
                     {pages.find(p => p.id === selectedPage)?.icon}
                   </div>
                   <div>
@@ -289,8 +289,8 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
               
               <div className="flex-1">
                 <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-red-500/20 to-red-600/20 backdrop-blur-sm border border-red-400/20 rounded-xl flex items-center justify-center">
-                    <BarChart3 className="w-5 h-5 text-red-200" />
+                  <div className="w-10 h-10 bg-gradient-to-br from-white/20 to-white/20 backdrop-blur-sm border border-white/20 rounded-xl flex items-center justify-center">
+                    <BarChart3 className="w-5 h-5 text-white" />
                   </div>
                   Performance Dashboard
                 </h2>

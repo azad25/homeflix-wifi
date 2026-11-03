@@ -353,7 +353,7 @@ export default function PageManager() {
                       <div className="text-white font-medium flex items-center gap-2">
                         {p.title} <span className="text-white/50">/ {p.slug}</span>
                         {p.is_home_page && (
-                          <span className="px-2 py-0.5 bg-red-600/20 border border-red-500/30 rounded text-red-200 text-xs font-semibold">
+                          <span className="px-2 py-0.5 bg-white rounded text-black text-xs font-semibold">
                             HOME PAGE
                           </span>
                         )}
@@ -397,10 +397,10 @@ export default function PageManager() {
                       initial={{ opacity: 0, y: -8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
-                      className="rounded-lg border border-red-500/20 bg-red-500/5 p-4"
+                      className="rounded-lg border border-white/10 bg-white/[0.04] p-4"
                     >
                       <div className="flex items-center justify-between mb-3">
-                        <div className="text-sm font-semibold text-red-200 flex items-center gap-2">
+                        <div className="text-sm font-semibold text-white flex items-center gap-2">
                           <Settings className="w-4 h-4" /> Widget Blueprint ({blueprintWidgets.length})
                         </div>
                         <div className="flex items-center gap-2">
@@ -412,7 +412,7 @@ export default function PageManager() {
                             <Plus className="w-4 h-4" />
                             Create Widget
                           </button>
-                          <button onClick={() => fetchBlueprint(p.slug)} className="text-xs text-red-200/80 hover:text-red-200 flex items-center gap-1">
+                          <button onClick={() => fetchBlueprint(p.slug)} className="text-xs text-white/70 hover:text-white flex items-center gap-1">
                             <RefreshCw className={`w-4 h-4 ${blueprintLoading ? 'animate-spin' : ''}`} /> Refresh
                           </button>
                         </div>
@@ -482,7 +482,7 @@ export default function PageManager() {
                                   <button
                                     onClick={() => deleteWidget(widget.id)}
                                     title="Delete widget"
-                                    className="p-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-200 hover:text-red-100 rounded transition-colors"
+                                    className="p-1.5 bg-danger/20 hover:bg-danger/30 text-danger hover:text-danger rounded transition-colors"
                                   >
                                     <Trash2 className="w-4 h-4" />
                                   </button>

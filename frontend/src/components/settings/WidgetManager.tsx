@@ -501,7 +501,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
             <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-white">Widget Manager</h2>
                 {saveStatus === 'saved' && (
-                    <div className="flex items-center text-green-400">
+                    <div className="flex items-center text-success">
                         <Check className="w-4 h-4 mr-2" />
                         Saved
                     </div>
@@ -516,7 +516,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                         onClick={() => setSelectedPage(page.page)}
                         className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
                             selectedPage === page.page
-                                ? 'bg-red-600 text-white border border-red-500/50'
+                                ? 'bg-white text-black border border-white'
                                 : 'text-gray-300 hover:text-white hover:bg-white/10 border border-transparent'
                         }`}
                     >
@@ -622,7 +622,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                 <button
                                     type="button"
                                     onClick={() => setShowContentSelector(true)}
-                                    className="flex items-center px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-blue-500"
+                                    className="flex items-center px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-white hover:text-black"
                                 >
                                     <Search className="w-4 h-4 mr-2" />
                                     Select Content & Genres
@@ -639,7 +639,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                         {newWidget.type === 'notifications' && (
                             <div className="mt-4 p-4 bg-gray-700 rounded-lg">
                                 <h4 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
-                                    <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                                    <span className="w-2 h-2 bg-danger rounded-full animate-pulse"></span>
                                     Notification Widget Settings
                                 </h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -736,7 +736,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                                                 config.notificationTypes = notificationTypes;
                                                                 setNewWidget(prev => ({ ...prev, config: JSON.stringify(config) }));
                                                             }}
-                                                            className="mt-0.5 rounded border-gray-500 bg-gray-600 text-red-600 focus:ring-white"
+                                                            className="mt-0.5 rounded border-gray-500 bg-gray-600 accent-white focus:ring-white"
                                                         />
                                                         <div className="flex-1">
                                                             <div className="flex items-center gap-2">
@@ -778,7 +778,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                             fetchFeaturedContent();
                                         }
                                     }}
-                                    className="flex items-center px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-blue-500"
+                                    className="flex items-center px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-white hover:text-black"
                                 >
                                     <Search className="w-4 h-4 mr-2" />
                                     Select Content & Genres
@@ -891,7 +891,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                             {/* Header */}
                             <div className="flex items-center justify-between p-6 border-b border-gray-700">
                                 <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-                                    <Filter className="w-5 h-5 text-blue-400" />
+                                    <Filter className="w-5 h-5 text-info" />
                                     Select Content & Genres
                                 </h2>
                                 <button
@@ -908,7 +908,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                     onClick={() => setContentSelectionMode('search')}
                                     className={`px-6 py-3 text-sm font-medium transition-colors ${
                                         contentSelectionMode === 'search' 
-                                            ? 'text-blue-400 border-b-2 border-blue-400' 
+                                            ? 'text-info border-b-2 border-info' 
                                             : 'text-gray-400 hover:text-white'
                                     }`}
                                 >
@@ -918,7 +918,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                     onClick={() => setContentSelectionMode('genres')}
                                     className={`px-6 py-3 text-sm font-medium transition-colors ${
                                         contentSelectionMode === 'genres' 
-                                            ? 'text-blue-400 border-b-2 border-blue-400' 
+                                            ? 'text-info border-b-2 border-info' 
                                             : 'text-gray-400 hover:text-white'
                                     }`}
                                 >
@@ -931,7 +931,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                     }}
                                     className={`px-6 py-3 text-sm font-medium transition-colors ${
                                         contentSelectionMode === 'featured' 
-                                            ? 'text-blue-400 border-b-2 border-blue-400' 
+                                            ? 'text-info border-b-2 border-info' 
                                             : 'text-gray-400 hover:text-white'
                                     }`}
                                 >
@@ -951,11 +951,11 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                                 value={searchQuery}
                                                 onChange={(e) => setSearchQuery(e.target.value)}
                                                 placeholder="Search for movies & TV shows..."
-                                                className="w-full bg-gray-800 border border-gray-600 rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-400 focus:border-blue-400 focus:outline-none transition-colors"
+                                                className="w-full bg-gray-800 border border-gray-600 rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-400 focus:border-info focus:outline-none transition-colors"
                                             />
                                             {isSearching && (
                                                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                                                    <div className="animate-spin w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+                                                    <div className="animate-spin w-4 h-4 border-2 border-info border-t-transparent rounded-full"></div>
                                                 </div>
                                             )}
                                         </div>
@@ -1008,7 +1008,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                                         }}
                                                         className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                                                             selectedGenres.includes(genre.id)
-                                                                ? 'bg-blue-600 text-white'
+                                                                ? 'bg-white text-black'
                                                                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                                                         }`}
                                                     >
@@ -1100,7 +1100,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                             }
                                             setShowContentSelector(false);
                                         }}
-                                        className="px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-blue-500"
+                                        className="px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-white hover:text-black"
                                     >
                                         Apply Selection
                                     </button>
@@ -1136,7 +1136,7 @@ function ContentCard({ item, isSelected, onToggle }: ContentCardProps) {
     return (
         <div
             className={`relative cursor-pointer rounded-lg overflow-hidden transition-all ${
-                isSelected ? 'ring-2 ring-blue-400 bg-blue-400/10' : 'hover:bg-gray-800'
+                isSelected ? 'ring-2 ring-info bg-info/10' : 'hover:bg-gray-800'
             }`}
             onClick={onToggle}
         >
@@ -1153,8 +1153,8 @@ function ContentCard({ item, isSelected, onToggle }: ContentCardProps) {
                 
                 {/* Selection overlay */}
                 {isSelected && (
-                    <div className="absolute inset-0 bg-blue-400/20 flex items-center justify-center">
-                        <div className="w-8 h-8 bg-blue-400 rounded-full flex items-center justify-center">
+                    <div className="absolute inset-0 bg-info/20 flex items-center justify-center">
+                        <div className="w-8 h-8 bg-white/10 rounded-full flex items-center justify-center">
                             <Check className="w-5 h-5 text-white" />
                         </div>
                     </div>
@@ -1163,16 +1163,16 @@ function ContentCard({ item, isSelected, onToggle }: ContentCardProps) {
                 {/* Media type badge */}
                 <div className="absolute top-2 left-2">
                     {item.media_type === 'movie' ? (
-                        <Film className="w-4 h-4 text-blue-400" />
+                        <Film className="w-4 h-4 text-info" />
                     ) : (
-                        <Tv className="w-4 h-4 text-green-400" />
+                        <Tv className="w-4 h-4 text-success" />
                     )}
                 </div>
 
                 {/* Rating */}
                 {item.vote_average > 0 && (
                     <div className="absolute top-2 right-2 flex items-center gap-1 px-1.5 py-0.5 bg-black/70 rounded text-xs">
-                        <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                        <Star className="w-3 h-3 fill-white text-white" />
                         <span className="text-white">{item.vote_average.toFixed(1)}</span>
                     </div>
                 )}
@@ -1379,7 +1379,7 @@ function WidgetCard({
                 {editForm.type === 'notifications' && (
                     <div className="mt-4 p-4 bg-gray-700 rounded-lg">
                         <h4 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
-                            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                            <span className="w-2 h-2 bg-danger rounded-full animate-pulse"></span>
                             Notification Widget Settings
                         </h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1476,7 +1476,7 @@ function WidgetCard({
                                                         config.notificationTypes = notificationTypes;
                                                         setEditForm(prev => ({ ...prev, config: JSON.stringify(config) }));
                                                     }}
-                                                    className="mt-0.5 rounded border-gray-500 bg-gray-600 text-red-600 focus:ring-white"
+                                                    className="mt-0.5 rounded border-gray-500 bg-gray-600 accent-white focus:ring-white"
                                                 />
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2">
@@ -1518,7 +1518,7 @@ function WidgetCard({
                                 setSelectedGenres(editingSelectedGenres);
                                 setShowContentSelector(true);
                             }}
-                            className="flex items-center px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-blue-500"
+                            className="flex items-center px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-white hover:text-black"
                         >
                             <Search className="w-4 h-4 mr-2" />
                             Select Content & Genres
@@ -1566,13 +1566,13 @@ function WidgetCard({
                             <span className="bg-gray-700 px-2 py-1 rounded">{widget.type}</span>
                             {widget.type !== 'notifications' && (
                                 <>
-                                    <span className="bg-blue-600 px-2 py-1 rounded">{widget.dataSource}</span>
-                                    <span className="bg-green-600 px-2 py-1 rounded">{widget.contentType}</span>
+                                    <span className="bg-white/10 px-2 py-1 rounded">{widget.dataSource}</span>
+                                    <span className="bg-white/10 px-2 py-1 rounded">{widget.contentType}</span>
                                 </>
                             )}
-                            <span className="bg-purple-600 px-2 py-1 rounded">{widget.layout}</span>
+                            <span className="bg-white/10 px-2 py-1 rounded">{widget.layout}</span>
                             {widget.type === 'notifications' && (
-                                <span className="bg-red-600 px-2 py-1 rounded">Live Updates</span>
+                                <span className="bg-danger/20 text-danger px-2 py-1 rounded">Live Updates</span>
                             )}
                         </div>
                     </div>
@@ -1581,26 +1581,26 @@ function WidgetCard({
                     <button
                         onClick={() => onToggle(!widget.enabled)}
                         className={`p-2 rounded-md ${
-                            widget.enabled ? 'text-green-400 hover:bg-green-400/10' : 'text-gray-500 hover:bg-gray-700'
+                            widget.enabled ? 'text-success hover:bg-success/10' : 'text-gray-500 hover:bg-gray-700'
                         }`}
                     >
                         {widget.enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                     </button>
                     <button
                         onClick={onEdit}
-                        className="p-2 text-blue-400 hover:bg-blue-400/10 rounded-md"
+                        className="p-2 text-info hover:bg-info/10 rounded-md"
                     >
                         <Edit2 className="w-4 h-4" />
                     </button>
                     <button
                         onClick={onDuplicate}
-                        className="p-2 text-yellow-400 hover:bg-yellow-400/10 rounded-md"
+                        className="p-2 text-white/70 hover:bg-white/10 rounded-md"
                     >
                         <Settings2 className="w-4 h-4" />
                     </button>
                     <button
                         onClick={onDelete}
-                        className="p-2 text-red-400 hover:bg-red-400/10 rounded-md"
+                        className="p-2 text-danger hover:bg-danger/10 rounded-md"
                     >
                         <Trash2 className="w-4 h-4" />
                     </button>

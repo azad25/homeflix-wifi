@@ -73,11 +73,11 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
               className="pointer-events-auto flex max-w-lg items-start gap-3 rounded-2xl bg-[#2c2c2e]/95 px-4 py-3 text-[14px] text-white shadow-[0_18px_50px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl"
             >
               {toast.kind === "success" ? (
-                <CheckCircle2 className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[#30d158]" />
+                <CheckCircle2 className="mt-0.5 h-[18px] w-[18px] shrink-0 text-success" />
               ) : toast.kind === "error" ? (
-                <XCircle className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[#ff453a]" />
+                <XCircle className="mt-0.5 h-[18px] w-[18px] shrink-0 text-danger" />
               ) : (
-                <AlertTriangle className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[#ffd60a]" />
+                <AlertTriangle className="mt-0.5 h-[18px] w-[18px] shrink-0 text-danger" />
               )}
               <span className="line-clamp-3 min-w-0 flex-1 break-words">{toast.text}</span>
               <button type="button" onClick={() => setToast(null)} aria-label="Dismiss" className="-mr-1 rounded-full p-0.5 text-white/50 hover:text-white">

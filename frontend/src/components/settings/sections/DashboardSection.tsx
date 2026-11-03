@@ -107,7 +107,7 @@ export default function DashboardSection() {
       <Group title="Status">
         {attention.length === 0 ? (
           <Row
-            icon={<CheckCircle2 className="text-[#30d158]" />}
+            icon={<CheckCircle2 className="text-success" />}
             title={o.update ? "Everything looks good" : "Checking…"}
             description={o.update?.ok ? "HomeFlix is up to date and storage is healthy." : undefined}
           />

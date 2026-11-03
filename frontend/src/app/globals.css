@@ -22,6 +22,11 @@
 }
 
 @theme inline {
+  /* HomeFlix palette: black & white like the logo; colour only for state.
+     success = on / done, info = in progress / guidance, danger = error / warning */
+  --color-success: #30d158;
+  --color-info: #0a84ff;
+  --color-danger: #ff453a;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: 'Inter', sans-serif;
@@ -381,7 +386,7 @@ aside {
   --tv-text: #f5f5f7;
   --tv-text-secondary: rgba(235, 235, 245, 0.62);
   --tv-text-tertiary: rgba(235, 235, 245, 0.38);
-  --tv-accent: #0a84ff;
+  --tv-accent: #ffffff;
   --tv-radius: 14px;
   --tv-radius-lg: 22px;
   --tv-shadow-lift: 0 22px 44px -12px rgba(0, 0, 0, 0.75), 0 8px 18px -8px rgba(0, 0, 0, 0.6);

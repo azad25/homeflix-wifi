@@ -147,7 +147,7 @@ export default function TVAppUpdateCard() {
             <>
               <p className="text-[15px] font-medium text-white">
                 Version {remote.version_name || "unknown"}{" "}
-                <span className={available ? "text-[#ffd84d]" : "text-white/40"}>({remote.version_code || "?"})</span>
+                <span className={available ? "text-info" : "text-white/40"}>({remote.version_code || "?"})</span>
               </p>
               {remote.commit_message && <p className="mt-1 truncate text-[13px] text-white/60">{remote.commit_message}</p>}
               <p className="mt-1.5 flex flex-wrap items-center gap-1 text-[12px] text-white/45">

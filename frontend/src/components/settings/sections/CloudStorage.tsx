@@ -185,7 +185,7 @@ export default function CloudStorage() {
                     ) : (
                       <p className="mt-0.5 text-[12px] text-white/45">Not used for storage yet</p>
                     )}
-                    {m?.error && <p className="mt-1 text-[12px] text-[#ff7b73]">{m.error}</p>}
+                    {m?.error && <p className="mt-1 text-[12px] text-danger">{m.error}</p>}
                   </div>
                   <div className="flex items-center gap-2 self-end md:self-center">
                     {m ? (

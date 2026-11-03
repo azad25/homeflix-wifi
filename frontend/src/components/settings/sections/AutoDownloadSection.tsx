@@ -98,7 +98,7 @@ export default function AutoDownloadSection() {
 
       {indexer === false && (
         <Notice
-          tone="warning"
+          tone="info"
           title="Connect a torrent indexer for the best results"
           action={
             <Button size="sm" onClick={() => go("downloads")}>
@@ -205,7 +205,7 @@ export default function AutoDownloadSection() {
       {dirty && (
         <div className="sticky bottom-4 z-10 flex justify-end">
           <div className="flex items-center gap-3 rounded-full bg-[#2c2c2e]/95 py-1.5 pl-4 pr-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl">
-            <Badge tone="warning">Unsaved changes</Badge>
+            <Badge tone="info">Unsaved changes</Badge>
             <Button variant="primary" onClick={() => save()} loading={saving}>
               Save Changes
             </Button>

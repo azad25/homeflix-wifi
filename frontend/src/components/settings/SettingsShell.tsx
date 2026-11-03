@@ -173,9 +173,9 @@ function Shell() {
 
   const badges: Partial<Record<SectionId, React.ReactNode>> = useMemo(
     () => ({
-      updates: updateBadge ? <span className="h-2 w-2 rounded-full bg-[#0a84ff]" aria-label="Update available" /> : null,
+      updates: updateBadge ? <span className="h-2 w-2 rounded-full bg-info" aria-label="Update available" /> : null,
       downloads: downloading ? <span className="text-[12px] font-semibold tabular-nums text-white/55">{downloading}</span> : null,
-      storage: lowStorage.length ? <span className="h-2 w-2 rounded-full bg-[#ff453a]" aria-label="Low storage" /> : null,
+      storage: lowStorage.length ? <span className="h-2 w-2 rounded-full bg-danger" aria-label="Low storage" /> : null,
     }),
     [updateBadge, downloading, lowStorage.length]
   );
