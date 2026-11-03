@@ -38,6 +38,11 @@ function safe<T>(fn: () => T): T | undefined {
 }
 
 function silenceOthers(owner: any) {
+  if (owner && players.has(owner) && mainPlaying()) {
+    safe(() => owner.mute()); // a trailer never talks over the full player
+    autoMuted.add(owner);
+    return;
+  }
   players.forEach((p) => {
     if (p === owner) return;
     if (safe(() => p.isMuted?.()) === false) {
@@ -45,6 +50,44 @@ function silenceOthers(owner: any) {
       autoMuted.add(p);
     }
   });
+  silenceMedia(owner);
+}
+
+// The same rule for <video>/<audio> elements: hover previews in the rows
+// (Latest Releases, genre rows…), Coming Soon trailers, etc. They unmute
+// themselves once loaded, which used to leave the hero trailer and a row's
+// preview both playing with sound. The full player (data-hfx-main) is never
+// muted by a trailer; when it plays, every trailer goes quiet.
+const isMain = (el: Element) => !!el.closest?.("[data-hfx-main]") || el.hasAttribute("data-hfx-main");
+const audible = (m: HTMLMediaElement) => !m.paused && !m.muted && m.volume > 0;
+
+function silenceMedia(owner: any) {
+  if (typeof document === "undefined") return;
+  document.querySelectorAll<HTMLMediaElement>("video, audio").forEach((m) => {
+    if (m === owner || isMain(m) || !audible(m)) return;
+    m.muted = true;
+  });
+}
+
+function mediaTookFocus(e: Event) {
+  const m = e.target as HTMLMediaElement;
+  if (!(m instanceof HTMLMediaElement) || !audible(m)) return;
+  if (!isMain(m) && mainPlaying()) {
+    m.muted = true; // the full player keeps the sound
+    return;
+  }
+  silenceOthers(m);
+}
+
+function mainPlaying() {
+  const v = document.querySelector<HTMLVideoElement>("video[data-hfx-main]");
+  return !!v && !v.paused;
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("play", mediaTookFocus, true);
+  document.addEventListener("playing", mediaTookFocus, true);
+  document.addEventListener("volumechange", mediaTookFocus, true);
 }
 
 function visibilityObserver(): IntersectionObserver | null {

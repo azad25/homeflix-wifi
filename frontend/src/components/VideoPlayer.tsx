@@ -3198,6 +3198,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           {/* Video */}
           <video
             ref={videoRef}
+            data-hfx-main=""
             className="w-full h-full object-contain bg-black"
             poster={(() => {
               // For episodes, prioritize episode still, then series backdrop
