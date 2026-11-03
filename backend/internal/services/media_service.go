@@ -3,6 +3,9 @@ package services
 import (
 	"errors"
 	"fmt"
+	"golang.org/x/text/runes"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
 	"homeflix-backend/internal/services/libgen"
 	"log"
 	"math/rand"
@@ -14,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"homeflix-backend/internal/models"
 
@@ -729,6 +733,12 @@ func (s *MediaService) normalizeSeriesTitle(title string) string {
 	// Remove year patterns: (2008), [2008], 2008
 	normalized = regexp.MustCompile(`[\(\[\{]?\d{4}[\)\]\}]?`).ReplaceAllString(normalized, "")
 
+	// Accents don't make a different show: "shōgun" == "shogun"
+	normalized = foldAccents(normalized)
+
+	// Apostrophes don't split words: "grey's" == "greys"
+	normalized = strings.NewReplacer("'", "", "’", "").Replace(normalized)
+
 	// Remove special characters but keep spaces
 	normalized = regexp.MustCompile(`[^\p{L}\p{N}\s]`).ReplaceAllString(normalized, " ")
 
@@ -749,6 +759,12 @@ func (s *MediaService) calculateSeriesSimilarity(title1, title2 string) float64 
 		return 1.0
 	}
 
+	// Numbers identify different shows ("Station 19" vs "Station 11",
+	// "Show 1" vs "Show 2"): they must match exactly.
+	if !sameNumbers(title1, title2) {
+		return 0.0
+	}
+
 	// Check if one title contains the other (handles "Breaking Bad" vs "Breaking Bad Season 1")
 	if strings.Contains(title1, title2) || strings.Contains(title2, title1) {
 		shorter := title1
@@ -759,6 +775,12 @@ func (s *MediaService) calculateSeriesSimilarity(title1, title2 string) float64 
 		}
 		// Score based on length ratio
 		return float64(len(shorter)) / float64(len(longer))
+	}
+
+	// Typo-level differences only: same number of words and long enough
+	// that one changed letter isn't a different word ("fargo" vs "cargo").
+	if len(strings.Fields(title1)) != len(strings.Fields(title2)) || len([]rune(title1)) < 6 || len([]rune(title2)) < 6 {
+		return 0.0
 	}
 
 	// Calculate Levenshtein distance for more complex cases
@@ -775,6 +797,32 @@ func (s *MediaService) calculateSeriesSimilarity(title1, title2 string) float64 
 	// Convert distance to similarity score
 	similarity := 1.0 - (float64(distance) / float64(maxLen))
 	return similarity
+}
+
+var numberToken = regexp.MustCompile(`\d+`)
+
+// foldAccents strips combining marks (é -> e, ō -> o).
+func foldAccents(v string) string {
+	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+	out, _, err := transform.String(t, v)
+	if err != nil {
+		return v
+	}
+	return out
+}
+
+// sameNumbers reports whether two titles contain the same numbers in order.
+func sameNumbers(a, b string) bool {
+	x, y := numberToken.FindAllString(a, -1), numberToken.FindAllString(b, -1)
+	if len(x) != len(y) {
+		return false
+	}
+	for i := range x {
+		if strings.TrimLeft(x[i], "0") != strings.TrimLeft(y[i], "0") {
+			return false
+		}
+	}
+	return true
 }
 
 // levenshteinDistance calculates the Levenshtein distance between two strings
