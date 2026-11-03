@@ -121,3 +121,50 @@ func TestPersonalisedFeedAndLiveUpdates(t *testing.T) {
 		t.Fatalf("cache: %d vs %d", len(s2.items), len(s.items))
 	}
 }
+
+func TestParseLetterboxdDiary(t *testing.T) {
+	items := load(t, "letterboxd.xml", LetterboxdSource("ferdous"))
+	if len(items) != 2 {
+		t.Fatalf("items %d", len(items))
+	}
+	h := items[0]
+	lb := h.Letterboxd
+	if h.Kind != "letterboxd" || lb == nil || lb.Film != "Heat" || lb.Year != 1995 || lb.Rating != 4.5 || !lb.Liked || !lb.Rewatch ||
+		lb.TMDBID != 949 || lb.Member != "Ferdous" || lb.Username != "ferdous" || lb.Review != "The diner scene still hits." ||
+		h.Image != "https://a.ltrbxd.com/resized/film-poster/heat.jpg" || h.Title != "Heat" {
+		t.Fatalf("entry %+v %+v", h, lb)
+	}
+	if d := items[1].Letterboxd; d.Review != "" || d.Rating != 0 || d.Rewatch {
+		t.Fatalf("watch-only entry %+v", d)
+	}
+}
+
+func TestLetterboxdSettingsAndFeed(t *testing.T) {
+	t.Setenv("HOMEFLIX_BUZZ_DIR", t.TempDir())
+	s := NewService()
+	s.Sources = nil
+	if _, err := s.UpdateSettings(Settings{LetterboxdUsers: []string{"bad user!"}}); err == nil {
+		t.Fatal("invalid username accepted")
+	}
+	got, err := s.UpdateSettings(Settings{LetterboxdUsers: []string{"https://letterboxd.com/ferdous/", "@Dave", "ferdous"}})
+	if err != nil || len(got.LetterboxdUsers) != 2 || got.LetterboxdUsers[0] != "ferdous" || got.LetterboxdUsers[1] != "Dave" {
+		t.Fatalf("settings %+v %v", got, err)
+	}
+	if NewService().Settings().LetterboxdUsers[1] != "Dave" {
+		t.Fatal("settings not saved")
+	}
+	items := load(t, "letterboxd.xml", LetterboxdSource("ferdous"))
+	for _, it := range items {
+		it.PublishedAt = time.Now().Add(-48 * time.Hour)
+		s.items[it.ID] = it
+	}
+	f := s.BuildFeed(nil, "in", "Tom Hardy") // region/person filters don't hide friends' diaries
+	if len(f.Letterboxd) != 2 || len(f.Latest) != 0 {
+		t.Fatalf("feed letterboxd=%d latest=%d", len(f.Letterboxd), len(f.Latest))
+	}
+	// Unfollowing removes their entries.
+	s.UpdateSettings(Settings{LetterboxdUsers: []string{"Dave"}})
+	if f := s.BuildFeed(nil, "", ""); len(f.Letterboxd) != 0 {
+		t.Fatal("unfollowed member's entries kept")
+	}
+}

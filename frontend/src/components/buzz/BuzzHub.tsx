@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, ExternalLink, Film, Newspaper, Play, Sparkles, User, X } from "lucide-react";
+import { ArrowUp, ExternalLink, Film, Heart, Newspaper, Play, Plus, Repeat, Settings2, Sparkles, User, X } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import AutoDownloadButton from "@/components/autodl/AutoDownloadButton";
 import { muteAllTrailers } from "@/lib/youtube";
@@ -20,12 +20,25 @@ export interface BuzzItem {
   region: string;
   published_at: string;
   people?: string[];
+  letterboxd?: {
+    member: string;
+    username: string;
+    film: string;
+    year?: number;
+    rating?: number;
+    liked?: boolean;
+    rewatch?: boolean;
+    watched_date?: string;
+    tmdb_id?: number;
+    review?: string;
+  };
 }
 
 interface Feed {
   for_you: BuzzItem[] | null;
   latest: BuzzItem[] | null;
   videos: BuzzItem[] | null;
+  letterboxd?: BuzzItem[] | null;
   people: { name: string; kind: string; stories: number }[] | null;
   updated: string;
 }
@@ -206,6 +219,148 @@ function SectionTabs({ tabs }: { tabs: { id: string; label: string }[] }) {
   );
 }
 
+const stars = (r?: number) => (r ? "★".repeat(Math.floor(r)) + (r % 1 ? "½" : "") : "");
+
+/** Diary entries and reviews of the Letterboxd members you follow. */
+function LetterboxdShelf({ items, onChanged }: { items: BuzzItem[]; onChanged: () => void }) {
+  const [users, setUsers] = useState<string[] | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${getApiUrl()}/api/buzz/settings`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setUsers(d.letterboxd_users || []))
+      .catch(() => setUsers([]));
+  }, []);
+
+  const save = async (next: string[]) => {
+    setSaving(true);
+    setErr("");
+    try {
+      const r = await fetch(`${getApiUrl()}/api/buzz/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ letterboxd_users: next }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setErr(d.error || "Couldn't save");
+        return false;
+      }
+      setUsers(d.letterboxd_users || []);
+      setDraft("");
+      // New members are fetched in the background; reload shortly after.
+      setTimeout(onChanged, 4000);
+      onChanged();
+      return true;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (users === null) return null;
+  const following = users.length > 0;
+
+  const editor = (
+    <div className="tv-gutter mb-5">
+      <div className="rounded-[20px] bg-white/[0.045] p-4 ring-1 ring-inset ring-white/[0.07] md:p-5">
+        {following && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {users.map((u) => (
+              <span key={u} className="flex items-center gap-1.5 rounded-full bg-white/[0.1] py-1 pl-3 pr-1.5 text-[13px] font-semibold text-white">
+                {u}
+                <button type="button" aria-label={`Unfollow ${u}`} onClick={() => save(users.filter((x) => x !== u))} className="rounded-full p-0.5 text-white/60 hover:bg-white/15 hover:text-white">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (draft.trim()) save([...users, draft.trim()]);
+          }}
+        >
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Letterboxd username or profile link"
+            aria-label="Letterboxd username"
+            className="min-w-0 flex-1 rounded-xl bg-white/[0.08] px-3.5 py-2.5 text-[14px] text-white outline-none ring-1 ring-inset ring-white/[0.08] placeholder:text-white/35 focus:ring-white/30"
+          />
+          <button type="submit" disabled={saving || !draft.trim()} className="flex items-center gap-1.5 rounded-xl bg-white px-4 text-[14px] font-semibold text-black disabled:opacity-40">
+            <Plus className="h-4 w-4" /> Follow
+          </button>
+        </form>
+        {err ? (
+          <p className="mt-2 text-[12px] text-[#ff6961]">{err}</p>
+        ) : (
+          <p className="mt-2 text-[12px] text-white/40">Your own profile or friends&apos;. Their public diary and reviews show up here.</p>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <Shelf
+      id="buzz-letterboxd"
+      title="From Letterboxd"
+      subtitle={following ? `What ${users.length === 1 ? users[0] : "the people you follow"} watched lately` : "Follow yourself or friends to see what they watch and review"}
+      action={
+        following && (
+          <button
+            type="button"
+            onClick={() => setEditing((v) => !v)}
+            className="flex items-center gap-1.5 rounded-full bg-white/[0.08] px-3.5 py-1.5 text-[13px] font-semibold text-white/80 hover:bg-white/[0.14]"
+          >
+            <Settings2 className="h-3.5 w-3.5" /> {editing ? "Done" : "Manage"}
+          </button>
+        )
+      }
+    >
+      {(!following || editing) && editor}
+      {following && items.length === 0 && !editing && (
+        <p className="tv-gutter text-[13px] text-white/45">Nothing logged in the last 90 days yet - new entries appear within 20 minutes.</p>
+      )}
+      {items.length > 0 && (
+        <div className="tv-shelf tv-gutter gap-4">
+          {items.map((it) => {
+            const lb = it.letterboxd!;
+            const href = lb.tmdb_id ? `/tmdb-movie/${lb.tmdb_id}?type=movie` : it.url;
+            return (
+              <div key={it.id} className="w-[150px] shrink-0 md:w-[168px]">
+                <a href={href} target={lb.tmdb_id ? undefined : "_blank"} rel="noopener noreferrer" className="group block">
+                  <Thumb src={it.image} icon={<Film className="h-8 w-8" />} className="aspect-[2/3] rounded-[16px] ring-1 ring-inset ring-white/[0.06]">
+                    <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/85 to-transparent" />
+                    <span className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center gap-1.5 text-[13px] font-semibold text-[#00e054]">
+                      {stars(lb.rating)}
+                      {lb.liked && <Heart className="h-3.5 w-3.5 fill-[#ff8000] text-[#ff8000]" />}
+                      {lb.rewatch && <Repeat className="h-3.5 w-3.5 text-[#40bcf4]" />}
+                    </span>
+                  </Thumb>
+                  <p className="mt-2.5 truncate text-[14px] font-semibold text-white">
+                    {lb.film || it.title}
+                    {lb.year ? <span className="font-normal text-white/45"> {lb.year}</span> : null}
+                  </p>
+                </a>
+                <a href={it.url} target="_blank" rel="noopener noreferrer" className="mt-0.5 flex items-center gap-1 text-[12px] text-white/45 hover:text-white/75">
+                  {lb.member} · {ago(it.published_at)} <ExternalLink className="h-3 w-3" />
+                </a>
+                {lb.review && <p className="mt-1.5 line-clamp-3 text-[12.5px] italic leading-snug text-white/60">&ldquo;{lb.review}&rdquo;</p>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Shelf>
+  );
+}
+
 const daysUntil = (d: string) => Math.ceil((new Date(d).getTime() - Date.now()) / 86400e3);
 
 /** Entertainment news + videos for the viewer, with live updates. */
@@ -318,10 +473,11 @@ export default function BuzzHub({ events = [] }: { events?: EventNotification[] 
       [
         { id: "buzz-top", label: leadIsForYou ? "For You" : "Top Stories", on: lead.length > 0 || events.length > 0 },
         { id: "buzz-videos", label: "Trailers", on: videos.length > 0 },
+        { id: "buzz-letterboxd", label: "Letterboxd", on: !!feed },
         { id: "buzz-soon", label: "Coming Soon", on: upcoming.length > 0 },
         { id: "buzz-news", label: "News", on: true },
       ].filter((t) => t.on),
-    [leadIsForYou, lead.length, events.length, videos.length, upcoming.length]
+    [leadIsForYou, lead.length, events.length, videos.length, upcoming.length, feed]
   );
 
   return (
@@ -400,6 +556,9 @@ export default function BuzzHub({ events = [] }: { events?: EventNotification[] 
           </div>
         </Shelf>
       )}
+
+      {/* Letterboxd */}
+      {feed && <LetterboxdShelf items={feed.letterboxd || []} onChanged={load} />}
 
       {/* Coming soon */}
       {upcoming.length > 0 && (

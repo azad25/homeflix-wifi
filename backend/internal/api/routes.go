@@ -375,6 +375,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		go buzzService.Run(context.Background())
 		api.GET("/buzz", handlers.GetBuzz(buzzService, tasteService))
 		api.GET("/buzz/stream", handlers.BuzzStream(buzzService))
+		api.GET("/buzz/settings", handlers.GetBuzzSettings(buzzService))
+		api.PUT("/buzz/settings", handlers.UpdateBuzzSettings(buzzService))
 		api.GET("/admin/buzz/health", handlers.BuzzHealth(buzzService))
 		api.POST("/admin/buzz/refresh", handlers.RefreshBuzz(buzzService))
 		api.GET("/recommendations/for-you", handlers.GetForYouRecommendations(tasteService))

@@ -85,3 +85,25 @@ func RefreshBuzz(b *buzz.Service) gin.HandlerFunc {
 		c.JSON(http.StatusAccepted, gin.H{"ok": true})
 	}
 }
+
+// GetBuzzSettings — GET /api/buzz/settings
+func GetBuzzSettings(b *buzz.Service) gin.HandlerFunc {
+	return func(c *gin.Context) { c.JSON(http.StatusOK, b.Settings()) }
+}
+
+// UpdateBuzzSettings — PUT /api/buzz/settings {"letterboxd_users": ["name"]}
+func UpdateBuzzSettings(b *buzz.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var in buzz.Settings
+		if err := c.ShouldBindJSON(&in); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		out, err := b.UpdateSettings(in)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, out)
+	}
+}

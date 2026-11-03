@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"fmt"
 	"html"
 	"io"
 	"log"
@@ -42,6 +43,7 @@ var DefaultSources = []Source{
 	{"koimoi", "Koimoi", "https://www.koimoi.com/feed/", "news", "in"},
 	{"bollywoodhungama", "Bollywood Hungama", "https://www.bollywoodhungama.com/feed/", "news", "in"},
 	{"soompi", "Soompi", "https://www.soompi.com/feed", "news", "kr"},
+	{"letterboxd-journal", "Letterboxd Journal", "https://letterboxd.com/journal/rss/", "news", "global"},
 	{"yt-rt", "Rotten Tomatoes Trailers", "https://www.youtube.com/feeds/videos.xml?channel_id=UCi8e0iOVk1fEOogdfu4YgfA", "video", "global"},
 	{"yt-ign", "IGN", "https://www.youtube.com/feeds/videos.xml?channel_id=UCKy1dAqELo0zrOtPkf0eTMw", "video", "global"},
 	{"yt-netflix", "Netflix", "https://www.youtube.com/feeds/videos.xml?channel_id=UCWOA1ZGywLbqmigxE4Qlvuw", "video", "global"},
@@ -65,9 +67,37 @@ type Item struct {
 	SourceID    string    `json:"source_id"`
 	Region      string    `json:"region"`
 	PublishedAt time.Time `json:"published_at"`
+	// Letterboxd diary/review entry (Kind "letterboxd").
+	Letterboxd *LetterboxdEntry `json:"letterboxd,omitempty"`
 	// Set per viewer by Feed.
 	People []string `json:"people,omitempty"` // matched actors/directors
 	Score  float64  `json:"score,omitempty"`
+}
+
+// LetterboxdEntry is a film a followed Letterboxd member logged.
+type LetterboxdEntry struct {
+	Member      string  `json:"member"`   // display name
+	Username    string  `json:"username"` // letterboxd.com/<username>
+	Film        string  `json:"film"`     // empty for lists
+	Year        int     `json:"year,omitempty"`
+	Rating      float64 `json:"rating,omitempty"` // 0.5-5 stars, 0 = not rated
+	Liked       bool    `json:"liked,omitempty"`
+	Rewatch     bool    `json:"rewatch,omitempty"`
+	WatchedDate string  `json:"watched_date,omitempty"`
+	TMDBID      int     `json:"tmdb_id,omitempty"`
+	Review      string  `json:"review,omitempty"`
+}
+
+// Settings: what the viewer follows besides the built-in sources.
+type Settings struct {
+	LetterboxdUsers []string `json:"letterboxd_users"`
+}
+
+var reLetterboxdUser = regexp.MustCompile(`^[A-Za-z0-9_]{2,30}$`)
+
+// LetterboxdSource is a member's public diary feed.
+func LetterboxdSource(user string) Source {
+	return Source{ID: "lb-" + strings.ToLower(user), Name: user + " on Letterboxd", URL: "https://letterboxd.com/" + user + "/rss/", Kind: "letterboxd", Region: "global"}
 }
 
 type Service struct {
@@ -83,6 +113,78 @@ type Service struct {
 	subsMu sync.Mutex
 	subs   map[chan []Item]struct{}
 	kick   chan struct{}
+
+	setMu    sync.RWMutex
+	settings Settings
+}
+
+func (s *Service) Settings() Settings {
+	s.setMu.RLock()
+	defer s.setMu.RUnlock()
+	out := Settings{LetterboxdUsers: append([]string{}, s.settings.LetterboxdUsers...)}
+	return out
+}
+
+// UpdateSettings validates and saves; items of unfollowed members go away
+// and new members are fetched right away.
+func (s *Service) UpdateSettings(in Settings) (Settings, error) {
+	seen := map[string]bool{}
+	var users []string
+	for _, u := range in.LetterboxdUsers {
+		u = strings.TrimSpace(strings.TrimPrefix(strings.TrimSuffix(strings.TrimSpace(u), "/"), "@"))
+		if i := strings.LastIndex(u, "letterboxd.com/"); i >= 0 { // pasted profile URL
+			u = strings.SplitN(u[i+len("letterboxd.com/"):], "/", 2)[0]
+		}
+		if u == "" || seen[strings.ToLower(u)] {
+			continue
+		}
+		if !reLetterboxdUser.MatchString(u) {
+			return Settings{}, fmt.Errorf("%q isn't a Letterboxd username", u)
+		}
+		seen[strings.ToLower(u)] = true
+		users = append(users, u)
+	}
+	if len(users) > 20 {
+		return Settings{}, fmt.Errorf("follow at most 20 Letterboxd members")
+	}
+	out := Settings{LetterboxdUsers: users}
+	if err := os.MkdirAll(s.dir, 0o755); err == nil {
+		if b, err := json.MarshalIndent(out, "", "  "); err == nil {
+			if err := os.WriteFile(filepath.Join(s.dir, "settings.json"), b, 0o644); err != nil {
+				return Settings{}, err
+			}
+		}
+	}
+	s.setMu.Lock()
+	s.settings = out
+	s.setMu.Unlock()
+	keep := map[string]bool{}
+	for _, src := range s.allSources() {
+		keep[src.ID] = true
+	}
+	s.mu.Lock()
+	for id, it := range s.items {
+		if it.Kind == "letterboxd" && !keep[it.SourceID] {
+			delete(s.items, id)
+		}
+	}
+	for id := range s.health {
+		if !keep[id] {
+			delete(s.health, id)
+		}
+	}
+	s.mu.Unlock()
+	s.Kick()
+	return out, nil
+}
+
+// allSources: the built-in sources plus followed Letterboxd members.
+func (s *Service) allSources() []Source {
+	out := append([]Source{}, s.Sources...)
+	for _, u := range s.Settings().LetterboxdUsers {
+		out = append(out, LetterboxdSource(u))
+	}
+	return out
 }
 
 // NewService uses $HOMEFLIX_BUZZ_DIR (default ./data/buzz) for its cache.
@@ -99,6 +201,9 @@ func NewService() *Service {
 		health:  map[string]string{},
 		subs:    map[chan []Item]struct{}{},
 		kick:    make(chan struct{}, 1),
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "settings.json")); err == nil {
+		_ = json.Unmarshal(b, &s.settings)
 	}
 	var cached []*Item
 	if b, err := os.ReadFile(filepath.Join(dir, "items.json")); err == nil && json.Unmarshal(b, &cached) == nil {
@@ -132,6 +237,15 @@ type rss struct {
 			Thumb []struct {
 				URL string `xml:"url,attr"`
 			} `xml:"http://search.yahoo.com/mrss/ thumbnail"`
+			// Letterboxd member feeds
+			Creator      string `xml:"http://purl.org/dc/elements/1.1/ creator"`
+			FilmTitle    string `xml:"https://letterboxd.com filmTitle"`
+			FilmYear     int    `xml:"https://letterboxd.com filmYear"`
+			MemberRating string `xml:"https://letterboxd.com memberRating"`
+			MemberLike   string `xml:"https://letterboxd.com memberLike"`
+			Rewatch      string `xml:"https://letterboxd.com rewatch"`
+			WatchedDate  string `xml:"https://letterboxd.com watchedDate"`
+			TMDBMovieID  int    `xml:"https://themoviedb.org movieId"`
 		} `xml:"item"`
 	} `xml:"channel"`
 }
@@ -261,10 +375,39 @@ func Parse(src Source, r io.Reader) ([]*Item, error) {
 			Summary: plain(firstNonEmpty(e.Description, e.Content), 280), Source: src.Name, SourceID: src.ID, Region: src.Region,
 			PublishedAt: parseTime(e.PubDate)}
 		it.ID = itemID(src.ID, firstNonEmpty(e.GUID, e.Link))
+		if src.Kind == "letterboxd" {
+			lb := &LetterboxdEntry{
+				Member:      firstNonEmpty(strings.TrimSpace(e.Creator), strings.TrimSuffix(src.Name, " on Letterboxd")),
+				Username:    strings.TrimPrefix(src.ID, "lb-"),
+				Film:        strings.TrimSpace(e.FilmTitle),
+				Year:        e.FilmYear,
+				Liked:       strings.EqualFold(e.MemberLike, "yes"),
+				Rewatch:     strings.EqualFold(e.Rewatch, "yes"),
+				WatchedDate: strings.TrimSpace(e.WatchedDate),
+				TMDBID:      e.TMDBMovieID,
+			}
+			if u := reLetterboxdURLUser.FindStringSubmatch(it.URL); u != nil {
+				lb.Username = u[1]
+			}
+			fmt.Sscan(strings.TrimSpace(e.MemberRating), &lb.Rating)
+			// The description is the poster then the review; "Watched on ..." when there's no review.
+			review := plain(e.Description, 400)
+			if strings.HasPrefix(review, "Watched on ") || strings.HasPrefix(review, "Rewatched on ") || strings.HasPrefix(review, "Added ") {
+				review = ""
+			}
+			lb.Review = review
+			it.Summary = review
+			if lb.Film != "" {
+				it.Title = lb.Film
+			}
+			it.Letterboxd = lb
+		}
 		out = append(out, it)
 	}
 	return out, nil
 }
+
+var reLetterboxdURLUser = regexp.MustCompile(`letterboxd\.com/([A-Za-z0-9_]+)/`)
 
 func firstNonEmpty(v ...string) string {
 	for _, s := range v {
@@ -308,7 +451,8 @@ func (s *Service) Refresh(ctx context.Context) int {
 	}
 	ch := make(chan res)
 	sem := make(chan struct{}, 6)
-	for _, src := range s.Sources {
+	sources := s.allSources()
+	for _, src := range sources {
 		go func(src Source) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
@@ -317,9 +461,8 @@ func (s *Service) Refresh(ctx context.Context) int {
 		}(src)
 	}
 	var fresh []Item
-	cutoff := time.Now().Add(-10 * 24 * time.Hour)
 	s.mu.Lock()
-	for range s.Sources {
+	for range sources {
 		r := <-ch
 		if r.err != nil {
 			s.health[r.src.ID] = r.err.Error()
@@ -330,7 +473,7 @@ func (s *Service) Refresh(ctx context.Context) int {
 			if it.PublishedAt.IsZero() {
 				it.PublishedAt = time.Now().UTC()
 			}
-			if it.PublishedAt.Before(cutoff) {
+			if it.PublishedAt.Before(cutoffFor(it)) {
 				continue
 			}
 			if _, seen := s.items[it.ID]; !seen {
@@ -344,7 +487,7 @@ func (s *Service) Refresh(ctx context.Context) int {
 	// Keep the newest 800.
 	all := make([]*Item, 0, len(s.items))
 	for _, it := range s.items {
-		if it.PublishedAt.After(cutoff) {
+		if it.PublishedAt.After(cutoffFor(it)) {
 			all = append(all, it)
 		}
 	}
@@ -368,6 +511,14 @@ func (s *Service) Refresh(ctx context.Context) int {
 		s.publish(fresh)
 	}
 	return len(fresh)
+}
+
+// cutoffFor: news goes stale in 10 days; friends' diaries are slower.
+func cutoffFor(it *Item) time.Time {
+	if it.Kind == "letterboxd" {
+		return time.Now().Add(-90 * 24 * time.Hour)
+	}
+	return time.Now().Add(-10 * 24 * time.Hour)
 }
 
 // Run refreshes every 20 minutes (and when kicked).
@@ -444,14 +595,16 @@ type Interest struct {
 
 // Feed is the personalised page.
 type Feed struct {
-	ForYou   []Item         `json:"for_you"`
-	Latest   []Item         `json:"latest"`
-	Videos   []Item         `json:"videos"`
-	People   []PersonBuzz   `json:"people"`
-	Regions  map[string]int `json:"regions"`
-	Updated  time.Time      `json:"updated"`
-	Sources  int            `json:"sources"`
-	Failures int            `json:"failures"`
+	ForYou []Item `json:"for_you"`
+	Latest []Item `json:"latest"`
+	Videos []Item `json:"videos"`
+	// Diary entries and reviews of followed Letterboxd members, newest first.
+	Letterboxd []Item         `json:"letterboxd"`
+	People     []PersonBuzz   `json:"people"`
+	Regions    map[string]int `json:"regions"`
+	Updated    time.Time      `json:"updated"`
+	Sources    int            `json:"sources"`
+	Failures   int            `json:"failures"`
 }
 
 // PersonBuzz: someone the viewer watches and how many stories mention them.
@@ -491,11 +644,17 @@ func (s *Service) BuildFeed(interests []Interest, region, person string) Feed {
 	s.mu.RUnlock()
 	sort.Slice(all, func(i, j int) bool { return all[i].PublishedAt.After(all[j].PublishedAt) })
 
-	f := Feed{Regions: map[string]int{}, Updated: updated, Sources: len(s.Sources), Failures: failures}
+	f := Feed{Regions: map[string]int{}, Updated: updated, Sources: len(s.allSources()), Failures: failures, Letterboxd: []Item{}}
 	counts := map[string]int{}
 	now := time.Now()
 	var scored []Item
 	for _, it := range all {
+		if it.Kind == "letterboxd" {
+			if len(f.Letterboxd) < 40 {
+				f.Letterboxd = append(f.Letterboxd, it)
+			}
+			continue
+		}
 		f.Regions[it.Region]++
 		if region != "" && it.Region != region && it.Region != "global" {
 			continue
