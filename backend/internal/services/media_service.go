@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"homeflix-backend/internal/services/libgen"
 	"log"
 	"math/rand"
 	"os"
@@ -483,6 +484,27 @@ func (s *MediaService) GetAllMedia() ([]models.Media, error) {
 	return media, nil
 }
 
+// GetCatalog returns every browsable title (movies and shows, no episodes)
+// with genres and series attached. Unlike GetAllMedia it does no per-title
+// disk checks, so it is cheap enough for request paths like recommendations.
+// The list is cached until the library changes (see libgen) and callers get
+// their own copy of the slice.
+func (s *MediaService) GetCatalog() ([]models.Media, error) {
+	list, err := catalogMemo.Get(10*time.Minute, func() ([]models.Media, error) {
+		var media []models.Media
+		err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
+			return db.Where("type <> ?", "episode").Preload("Genres").Preload("Series").Find(&media).Error
+		})
+		return media, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append([]models.Media(nil), list...), nil
+}
+
+var catalogMemo libgen.Memo[[]models.Media]
+
 func (s *MediaService) GetMovies() ([]models.Media, error) {
 	var movies []models.Media
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
@@ -843,6 +865,27 @@ func (s *MediaService) SearchMedia(query string) ([]models.Media, error) {
 	return media, err
 }
 
+// SearchMediaBounded is SearchMedia for request paths: at most max rows
+// (best by views and rating), genres and series attached, no subtitle
+// preload and no per-row disk checks. A broad query like "Show" used to load
+// thousands of episodes with subtitles on every keystroke.
+func (s *MediaService) SearchMediaBounded(query string, max int) ([]models.Media, error) {
+	if max <= 0 {
+		max = 300
+	}
+	var media []models.Media
+	searchPattern := "%" + query + "%"
+	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
+		return db.Preload("Genres").Preload("Series").
+			Where("title LIKE ? OR description LIKE ? OR EXISTS (SELECT 1 FROM media_genres mg JOIN genres g ON mg.genre_id = g.id WHERE mg.media_id = media.id AND g.name LIKE ?)",
+				searchPattern, searchPattern, searchPattern).
+			Order("view_count DESC, rating DESC").
+			Limit(max).
+			Find(&media).Error
+	})
+	return media, err
+}
+
 func (s *MediaService) PersonalizeMediaResults(userID string, items []models.Media, query string) []models.Media {
 	if len(items) == 0 {
 		return []models.Media{}
@@ -1079,7 +1122,9 @@ func (s *MediaService) UpdateMedia(media *models.Media) error {
 func (s *MediaService) GetAllSeries() ([]models.Series, error) {
 	var series []models.Series
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
-		return db.Preload("Episodes").Find(&series).Error
+		// Episodes are never serialised (json:"-") and no caller reads them;
+		// preloading them loaded every episode in the library per request.
+		return db.Find(&series).Error
 	})
 	return series, err
 }
@@ -2430,4 +2475,41 @@ func (s *MediaService) GetSeasonBySeriesAndNumber(seriesID uint, seasonNumber in
 		return nil, err
 	}
 	return &season, nil
+}
+
+// NextEpisode returns the episode that follows ep in its show: the next
+// episode number in the same season, else the first episode of a later
+// season (gaps in numbering are skipped). Episodes without a show fall back
+// to the same folder. Returns gorm.ErrRecordNotFound at the end of a show.
+func (s *MediaService) NextEpisode(ep *models.Media) (*models.Media, error) {
+	season, episode := 0, 0
+	if ep.SeasonNumber != nil {
+		season = *ep.SeasonNumber
+	} else if ep.Season != nil {
+		season = *ep.Season
+	}
+	if ep.EpisodeNumber != nil {
+		episode = *ep.EpisodeNumber
+	} else if ep.Episode != nil {
+		episode = *ep.Episode
+	}
+	var next models.Media
+	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
+		q := db.Where("type = ? AND id <> ?", "episode", ep.ID)
+		if ep.SeriesID != nil && *ep.SeriesID > 0 {
+			q = q.Where("series_id = ?", *ep.SeriesID)
+		} else {
+			dir := filepath.Dir(ep.FilePath)
+			q = q.Where("file_path LIKE ?", dir+string(filepath.Separator)+"%")
+		}
+		const sn, en = "COALESCE(season_number, season, 1)", "COALESCE(episode_number, episode, 0)"
+		return q.Where("("+sn+" > ?) OR ("+sn+" = ? AND "+en+" > ?)", season, season, episode).
+			Order(sn + ", " + en).
+			Preload("Genres").
+			First(&next).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &next, nil
 }

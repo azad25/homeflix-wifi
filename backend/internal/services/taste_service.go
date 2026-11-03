@@ -532,22 +532,21 @@ type scored struct {
 // mmr greedily picks items that are relevant but not redundant with what's
 // already picked (same franchise/director/primary reason).
 func mmr(cands []scored, k int, lambda float64) []scored {
+	// Maximal marginal relevance. Each candidate's similarity to the picked
+	// set is kept as a running maximum and only compared with the newest
+	// pick, so a row costs O(n·k) cosines instead of O(n·k²). Same picks,
+	// same tie-breaking (lowest index wins) as the straightforward version.
+	cands = mmrPrune(cands, k, lambda)
 	picked := make([]scored, 0, k)
 	used := make([]bool, len(cands))
+	maxSim := make([]float64, len(cands))
 	for len(picked) < k {
 		bestI, bestV := -1, math.Inf(-1)
-		for i, c := range cands {
+		for i := range cands {
 			if used[i] {
 				continue
 			}
-			maxSim := 0.0
-			for _, p := range picked {
-				if sim := cosine(c.u.vec, c.u.norm, p.u.vec, p.u.norm); sim > maxSim {
-					maxSim = sim
-				}
-			}
-			v := lambda*c.score - (1-lambda)*maxSim
-			if v > bestV {
+			if v := lambda*cands[i].score - (1-lambda)*maxSim[i]; v > bestV {
 				bestI, bestV = i, v
 			}
 		}
@@ -555,9 +554,45 @@ func mmr(cands []scored, k int, lambda float64) []scored {
 			break
 		}
 		used[bestI] = true
-		picked = append(picked, cands[bestI])
+		p := cands[bestI]
+		picked = append(picked, p)
+		if len(picked) == k {
+			break
+		}
+		for i := range cands {
+			if used[i] {
+				continue
+			}
+			if sim := cosine(cands[i].u.vec, cands[i].u.norm, p.u.vec, p.u.norm); sim > maxSim[i] {
+				maxSim[i] = sim
+			}
+		}
 	}
 	return picked
+}
+
+// mmrPrune drops candidates that can never be among the first k picks.
+// Similarities are in [0,1], so while fewer than k titles are picked, one of
+// the k best-scored candidates is still available with a value of at least
+// lambda*s_k - (1-lambda). A candidate with lambda*s < that can't win any
+// step. Order is preserved, so tie-breaking is unchanged.
+func mmrPrune(cands []scored, k int, lambda float64) []scored {
+	if k <= 0 || len(cands) <= k || lambda <= 0 {
+		return cands
+	}
+	scores := make([]float64, len(cands))
+	for i, c := range cands {
+		scores[i] = c.score
+	}
+	sort.Sort(sort.Reverse(sort.Float64Slice(scores)))
+	floor := scores[k-1] - (1-lambda)/lambda
+	out := make([]scored, 0, len(cands))
+	for _, c := range cands {
+		if c.score >= floor {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func toItems(list []scored) []TasteItem {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -96,8 +97,10 @@ func GetPersonalizedRecommendationsEnhanced(recommendationService *services.Reco
 
 		log.Printf("👤 Generating personalized recommendations for session %s", sessionID)
 
-		// Get all media for personalization
-		allMedia, err := mediaService.GetAllMedia()
+		// Movies and shows only (episodes are never recommended on their own),
+		// without per-title disk checks: this used to load all ~10k rows with
+		// subtitles and stat artwork for each one on every request.
+		allMedia, err := mediaService.GetCatalog()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -149,7 +152,7 @@ func generateEnhancedSessionID(c *gin.Context) string {
 	ip := c.ClientIP()
 	userAgent := c.GetHeader("User-Agent")
 	timestamp := time.Now().Unix()
-	
+
 	data := fmt.Sprintf("%s-%s-%d", ip, userAgent, timestamp)
 	hash := md5.Sum([]byte(data))
 	return fmt.Sprintf("%x", hash)[:16]
@@ -188,7 +191,7 @@ func generateSessionAwareRecommendations(recommendationService *services.Recomme
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// CRITICAL: Filter out episodes from all media
 	allMedia = filterOutEpisodes(allMedia)
 
@@ -218,7 +221,7 @@ func generateSessionAwareRecommendations(recommendationService *services.Recomme
 	if len(recommendations) == 0 {
 		recommendations = applySessionBasedShuffle(allMedia, sessionID, limit)
 	}
-	
+
 	// Ensure at least one latest media item is included
 	recommendations = ensureLatestMediaIncluded(recommendations, allMedia, limit)
 
@@ -235,7 +238,7 @@ func applySessionBasedShuffle(media []models.Media, sessionID string, limit int)
 	for _, char := range sessionID {
 		sessionSeed += int64(char)
 	}
-	
+
 	// Add time-based component for different results over time
 	timeSeed := time.Now().Unix() / 3600 // Changes every hour
 	finalSeed := sessionSeed + timeSeed
@@ -267,70 +270,68 @@ func generatePersonalizedWithSession(allMedia []models.Media, sessionID string, 
 	for _, char := range sessionID {
 		sessionSeed += int64(char)
 	}
-	
+
 	rng := rand.New(rand.NewSource(sessionSeed))
 
 	// Define preference weights based on session
 	genrePreferences := map[string]float64{
-		"action":     0.8 + rng.Float64()*0.4,
-		"drama":      0.7 + rng.Float64()*0.4,
-		"comedy":     0.6 + rng.Float64()*0.4,
-		"thriller":   0.8 + rng.Float64()*0.3,
-		"sci-fi":     0.9 + rng.Float64()*0.2,
-		"horror":     0.5 + rng.Float64()*0.5,
-		"romance":    0.4 + rng.Float64()*0.6,
-		"adventure":  0.8 + rng.Float64()*0.3,
+		"action":    0.8 + rng.Float64()*0.4,
+		"drama":     0.7 + rng.Float64()*0.4,
+		"comedy":    0.6 + rng.Float64()*0.4,
+		"thriller":  0.8 + rng.Float64()*0.3,
+		"sci-fi":    0.9 + rng.Float64()*0.2,
+		"horror":    0.5 + rng.Float64()*0.5,
+		"romance":   0.4 + rng.Float64()*0.6,
+		"adventure": 0.8 + rng.Float64()*0.3,
 	}
 
 	// Score media based on session preferences
 	type scoredMedia struct {
-		media models.Media
+		idx   int
 		score float64
 	}
 
-	var scored []scoredMedia
-	for _, media := range allMedia {
+	scored := make([]scoredMedia, 0, len(allMedia))
+	for i := range allMedia {
+		media := &allMedia[i]
+		if media.Type == "episode" {
+			continue
+		}
 		score := 0.0
-		
+
 		// Base score from rating
 		if media.Rating > 0 {
 			score += float64(media.Rating) * 0.3
 		}
-		
-		// Genre preference score
+
+		// Genre preference score (TMDB names are capitalised: "Action")
 		for _, genre := range media.Genres {
-			if pref, exists := genrePreferences[genre.Name]; exists {
+			if pref, exists := genrePreferences[strings.ToLower(genre.Name)]; exists {
 				score += pref * 0.4
 			}
 		}
-		
+
 		// Popularity score
 		if media.ViewCount > 0 {
 			score += float64(media.ViewCount) * 0.0001
 		}
-		
+
 		// Recency bonus (higher IDs = newer)
 		score += float64(media.ID) * 0.0001
-		
+
 		// Session-based randomness
 		score += rng.Float64() * 0.3
 
-		scored = append(scored, scoredMedia{media: media, score: score})
+		scored = append(scored, scoredMedia{idx: i, score: score})
 	}
 
-	// Sort by score
-	for i := 0; i < len(scored)-1; i++ {
-		for j := i + 1; j < len(scored); j++ {
-			if scored[i].score < scored[j].score {
-				scored[i], scored[j] = scored[j], scored[i]
-			}
-		}
-	}
+	// O(n log n) on indices (this was an O(n²) swap of full records)
+	sort.SliceStable(scored, func(a, b int) bool { return scored[a].score > scored[b].score })
 
 	// Extract top recommendations
-	var recommendations []models.Media
+	recommendations := make([]models.Media, 0, limit)
 	for i := 0; i < limit && i < len(scored); i++ {
-		recommendations = append(recommendations, scored[i].media)
+		recommendations = append(recommendations, allMedia[scored[i].idx])
 	}
 
 	return recommendations
@@ -340,7 +341,7 @@ func generateMixedWithSession(allMedia []models.Media, sessionID string, limit i
 	if len(allMedia) == 0 {
 		return allMedia
 	}
-	
+
 	// CRITICAL: Filter out episodes before processing
 	allMedia = filterOutEpisodes(allMedia)
 
@@ -348,19 +349,19 @@ func generateMixedWithSession(allMedia []models.Media, sessionID string, limit i
 	hash := fnv.New64a()
 	hash.Write([]byte(sessionID))
 	seed := int64(hash.Sum64())
-	
+
 	// Create a new random generator with the session-based seed
 	rng := rand.New(rand.NewSource(seed))
-	
+
 	// Create a copy to avoid modifying the original slice
 	mediaCopy := make([]models.Media, len(allMedia))
 	copy(mediaCopy, allMedia)
-	
+
 	// Shuffle using session-based randomness
 	rng.Shuffle(len(mediaCopy), func(i, j int) {
 		mediaCopy[i], mediaCopy[j] = mediaCopy[j], mediaCopy[i]
 	})
-	
+
 	// Apply some intelligent weighting while maintaining session consistency
 	sort.SliceStable(mediaCopy, func(i, j int) bool {
 		// Use session hash to create consistent but varied ordering
@@ -368,17 +369,17 @@ func generateMixedWithSession(allMedia []models.Media, sessionID string, limit i
 		hashI.Write([]byte(fmt.Sprintf("%s-%d", sessionID, mediaCopy[i].ID)))
 		hashJ := fnv.New64a()
 		hashJ.Write([]byte(fmt.Sprintf("%s-%d", sessionID, mediaCopy[j].ID)))
-		
+
 		scoreI := float64(mediaCopy[i].ViewCount)*0.3 + mediaCopy[i].Rating*10 + float64(hashI.Sum64()%100)
 		scoreJ := float64(mediaCopy[j].ViewCount)*0.3 + mediaCopy[j].Rating*10 + float64(hashJ.Sum64()%100)
-		
+
 		return scoreI > scoreJ
 	})
-	
+
 	if len(mediaCopy) > limit {
 		mediaCopy = mediaCopy[:limit]
 	}
-	
+
 	return mediaCopy
 }
 
@@ -398,7 +399,7 @@ func ensureLatestMediaIncluded(currentMedia []models.Media, allMedia []models.Me
 	if len(allMedia) == 0 {
 		return currentMedia
 	}
-	
+
 	// Find the latest media item (should already be filtered to exclude episodes)
 	var latestMedia *models.Media
 	for _, media := range allMedia {
@@ -406,11 +407,11 @@ func ensureLatestMediaIncluded(currentMedia []models.Media, allMedia []models.Me
 			latestMedia = &media
 		}
 	}
-	
+
 	if latestMedia == nil {
 		return currentMedia
 	}
-	
+
 	// Check if latest media is already in the recommendations
 	for _, media := range currentMedia {
 		if media.ID == latestMedia.ID {
@@ -418,23 +419,23 @@ func ensureLatestMediaIncluded(currentMedia []models.Media, allMedia []models.Me
 			return currentMedia
 		}
 	}
-	
+
 	// Latest media not included, add it to the beginning
 	result := []models.Media{*latestMedia}
-	
+
 	// Add existing recommendations (up to limit-1 to make room for latest)
 	maxExisting := limit - 1
 	if maxExisting < 0 {
 		maxExisting = 0
 	}
-	
+
 	for i, media := range currentMedia {
 		if i >= maxExisting {
 			break
 		}
 		result = append(result, media)
 	}
-	
+
 	return result
 }
 
@@ -549,13 +550,13 @@ func GetSimilarMediaByID(recommendationService *services.RecommendationService, 
 			return
 		}
 
-		// Get all media to find similar ones (excluding episodes)
-		allMedia, err := mediaService.GetAllMedia()
+		// Movies and shows only, no per-title disk checks
+		allMedia, err := mediaService.GetCatalog()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch media"})
 			return
 		}
-		
+
 		// Filter out episodes from all media
 		allMedia = filterOutEpisodes(allMedia)
 
@@ -607,7 +608,7 @@ func sharesSimilarGenres(genres1, genres2 []string) bool {
 	if len(genres1) == 0 || len(genres2) == 0 {
 		return false
 	}
-	
+
 	// Check for any overlapping genres
 	for _, genre1 := range genres1 {
 		for _, genre2 := range genres2 {
@@ -616,6 +617,6 @@ func sharesSimilarGenres(genres1, genres2 []string) bool {
 			}
 		}
 	}
-	
+
 	return false
 }

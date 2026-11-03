@@ -34,8 +34,10 @@ export default function DashboardSection() {
     let alive = true;
     const set = (patch: Partial<Overview>) => alive && setO((p) => ({ ...p, ...patch }));
     // Each tile fills in as its request lands (no all-or-nothing spinner).
-    getJSON("/api/media").then((m) => set({ movies: Array.isArray(m) ? m.filter((x: any) => x.type !== "episode" && x.type !== "tv").length : null }));
-    getJSON("/api/series").then((s) => set({ shows: Array.isArray(s) ? s.length : null }));
+    // Totals only (was: the whole library, counted in the browser)
+    getJSON("/api/media/counts").then((n) =>
+      set({ movies: typeof n?.movies === "number" ? n.movies : null, shows: typeof n?.series === "number" ? n.series : null })
+    );
     getJSON("/api/admin/storage/stats").then((s) => {
       const list: any[] = s?.storages || [];
       set({

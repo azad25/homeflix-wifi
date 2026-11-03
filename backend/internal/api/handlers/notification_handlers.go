@@ -30,6 +30,10 @@ func (h *NotificationHandlers) GetNotifications(c *gin.Context) {
 		limit = 50
 	}
 
+	if h.notificationService == nil { // Redis not configured: nothing to show, not an error
+		c.JSON(http.StatusOK, gin.H{"notifications": []interface{}{}, "count": 0})
+		return
+	}
 	notifications, err := h.notificationService.GetNotifications(limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -51,6 +55,10 @@ func (h *NotificationHandlers) GetNotifications(c *gin.Context) {
 
 // GetNotificationCount returns the total count of notifications
 func (h *NotificationHandlers) GetNotificationCount(c *gin.Context) {
+	if h.notificationService == nil {
+		c.JSON(http.StatusOK, gin.H{"count": 0})
+		return
+	}
 	count, err := h.notificationService.GetNotificationCount()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{

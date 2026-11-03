@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"homeflix-backend/internal/api/handlers"
 	"homeflix-backend/internal/services/governor"
+	"homeflix-backend/internal/services/libgen"
 	"io"
 	"log"
 	"net/http"
@@ -42,6 +43,9 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to initialize database:", err)
 	}
+	// Library generation: caches derived from the library (catalog,
+	// recommendations) rebuild only after a library write.
+	libgen.Watch(db)
 
 	// Auto-migrate music tables
 	if err := db.AutoMigrate(&music.Track{}, &music.Playlist{}, &music.PlaylistTrack{}, &music.UserLike{}, &music.RecentlyPlayed{}, &music.SearchHistory{}); err != nil {

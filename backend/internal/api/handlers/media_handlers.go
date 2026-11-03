@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"gorm.io/gorm"
 	"log"
 	"math/rand"
 	"net/http"
@@ -958,7 +959,8 @@ func SearchMedia(mediaService *services.MediaService, searchService *services.Se
 		queryGenreTerms := genreAliasCandidates(query)
 
 		if compact {
-			searchResults, err := mediaService.SearchMedia(query)
+			// Bounded: enough rows for personalised ranking and paging.
+			searchResults, err := mediaService.SearchMediaBounded(query, max(300, (offset+limit)*4))
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
@@ -2343,11 +2345,11 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 				})
 				return
 			}
-			
+
 			// Convert to map and enrich with genre_names
 			movieMap := structToMap(movieDetails)
 			movieMap = enrichTMDBMovieWithGenreNames(movieMap)
-			
+
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "movie",
 				"data":       movieMap,
@@ -2366,11 +2368,11 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 				})
 				return
 			}
-			
+
 			// Convert to map and enrich with genre_names
 			tvMap := structToMap(tvDetails)
 			tvMap = enrichTMDBTVWithGenreNames(tvMap)
-			
+
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "tv",
 				"data":       tvMap,
@@ -2386,7 +2388,7 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 			// Successfully got movie details
 			movieMap := structToMap(movieDetails)
 			movieMap = enrichTMDBMovieWithGenreNames(movieMap)
-			
+
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "movie",
 				"data":       movieMap,
@@ -2401,7 +2403,7 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 			// Successfully got TV details
 			tvMap := structToMap(tvDetails)
 			tvMap = enrichTMDBTVWithGenreNames(tvMap)
-			
+
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "tv",
 				"data":       tvMap,
@@ -3407,4 +3409,52 @@ func truncateDescription(text string, maxLength int) string {
 	}
 
 	return truncated + "..."
+}
+
+// GetNextEpisode — GET /api/media/:id/next-episode
+// The episode after this one (same show; next season when the season ends).
+// 404 at the end of a show. Replaces clients downloading the whole library
+// to work this out.
+func GetNextEpisode(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		cur, err := mediaService.GetMediaByID(uint(id))
+		if err != nil || cur.ID == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
+			return
+		}
+		if cur.Type != "episode" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not an episode"})
+			return
+		}
+		next, err := mediaService.NextEpisode(cur)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "no next episode"})
+			return
+		}
+		c.Header("Cache-Control", "private, max-age=60")
+		c.JSON(http.StatusOK, prepareSingleMediaForResponse(next))
+	}
+}
+
+// GetLibraryCounts — GET /api/media/counts
+// {"movies":N,"series":N,"episodes":N}: for dashboards that only need totals
+// (they used to download the whole library to count it).
+func GetLibraryCounts(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var out struct {
+			Movies   int64 `json:"movies"`
+			Series   int64 `json:"series"`
+			Episodes int64 `json:"episodes"`
+		}
+		db.Model(&models.Media{}).Where("type = ?", "movie").Count(&out.Movies)
+		db.Model(&models.Media{}).Where("type = ?", "episode").Count(&out.Episodes)
+		db.Model(&models.Series{}).Count(&out.Series)
+		c.Header("Cache-Control", "private, max-age=30")
+		c.JSON(http.StatusOK, out)
+	}
 }

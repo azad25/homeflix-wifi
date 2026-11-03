@@ -28,23 +28,17 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
   useEffect(() => {
     fetchEpisodes();
     fetchPlaybackProgress();
-  }, [seriesId]);
+  }, [seriesId, selectedSeason]);
 
   const fetchEpisodes = async () => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/media`);
-      const allMedia = await response.json();
-      
-      // Filter episodes for this series and season
-      const seriesEpisodes = allMedia.filter(
-        (m: Media) => 
-          m.series_id === seriesId && 
-          m.season_number === selectedSeason &&
-          m.type === 'episode'
-      ).sort((a: Media, b: Media) => 
-        (a.episode_number || 0) - (b.episode_number || 0)
+      // Just this season (was: the whole library, filtered in the browser)
+      const response = await fetch(`${getApiUrl()}/api/series/${seriesId}/seasons/${selectedSeason}/episodes`);
+      const list: Media[] = response.ok ? await response.json() : [];
+      const seriesEpisodes = (Array.isArray(list) ? list : []).sort(
+        (a: Media, b: Media) => (a.episode_number || 0) - (b.episode_number || 0)
       );
-      
+
       setEpisodes(seriesEpisodes);
       setLoading(false);
     } catch (error) {

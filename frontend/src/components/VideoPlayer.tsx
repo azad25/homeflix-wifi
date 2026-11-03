@@ -1124,13 +1124,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             const data = await response.json();
             setSeriesData(data);
           } else {
-            // Fallback: try to find series info from media API
-            const allMediaResponse = await fetch(`${getApiUrl()}/api/media`);
-            const allMedia = await allMediaResponse.json();
-            const seriesInfo = allMedia.find((m: Media) => m.id === media.series_id || m.series_id === media.series_id);
-            if (seriesInfo) {
-              setSeriesData(seriesInfo);
-            } else {
+            // Fallback: TMDB (no full-library download here)
+            {
               // Final fallback: try TMDB API for series data
               try {
                 const tmdbResponse = await fetch(`${getApiUrl()}/api/tmdb/tv/${media.series_id}`);
@@ -1943,128 +1938,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Fetch next episode for TV series
   useEffect(() => {
     const fetchNextEpisode = async () => {
-
-
-      if (media.type === 'episode') {
-        try {
-          const response = await fetch(`${getApiUrl()}/api/media`);
-          const allMedia: Media[] = await response.json();
-
-          // Extract season and episode numbers from title if not available in metadata
-          let currentSeason = media.season_number;
-          let currentEpisodeNum = media.episode_number;
-
-
-
-          if (!currentSeason || !currentEpisodeNum) {
-            const episodeMatch = media.title.match(/[Ss](\d+)[Ee](\d+)/);
-            if (episodeMatch) {
-              currentSeason = parseInt(episodeMatch[1]);
-              currentEpisodeNum = parseInt(episodeMatch[2]);
-
-            }
-          }
-
-          if (currentSeason && currentEpisodeNum) {
-
-
-            // Find episodes from the same series
-            const seriesEpisodes = allMedia.filter((m: Media) => {
-              if (m.type !== 'episode') return false;
-
-              // Method 1: Direct series_id match (most reliable)
-              if (media.series_id && m.series_id === media.series_id) {
-                return true;
-              }
-
-              // Method 2: Extract series name from title (remove season/episode info)
-              const currentSeriesName = media.title.replace(/\s*-?\s*S\d+E\d+.*$/i, '').trim();
-              const candidateSeriesName = m.title.replace(/\s*-?\s*S\d+E\d+.*$/i, '').trim();
-
-              if (currentSeriesName && candidateSeriesName &&
-                currentSeriesName.toLowerCase() === candidateSeriesName.toLowerCase()) {
-                return true;
-              }
-
-              // Method 3: Check if titles start with the same series name
-              const currentFirstWord = media.title.split(' ')[0].toLowerCase();
-              const candidateFirstWord = m.title.split(' ')[0].toLowerCase();
-
-              if (currentFirstWord.length > 3 && currentFirstWord === candidateFirstWord) {
-                return true;
-              }
-
-              // Method 4: File path similarity (same directory)
-              if (media.file_path && m.file_path) {
-                const currentDir = media.file_path.split('/').slice(0, -1).join('/');
-                const candidateDir = m.file_path.split('/').slice(0, -1).join('/');
-                if (currentDir && candidateDir && currentDir === candidateDir) {
-                  return true;
-                }
-              }
-
-              return false;
-            });
-
-
-
-            // First, try to find the next episode in the same season
-            const nextEpisodeInSeason = seriesEpisodes.find((m: Media) => {
-              let season = m.season_number;
-              let episode = m.episode_number;
-
-              if (!season || !episode) {
-                const episodeMatch = m.title.match(/[Ss](\d+)[Ee](\d+)/);
-                if (episodeMatch) {
-                  season = parseInt(episodeMatch[1]);
-                  episode = parseInt(episodeMatch[2]);
-                }
-              }
-
-              const isNext = season === currentSeason && episode === currentEpisodeNum + 1;
-
-              return isNext;
-            });
-
-            if (nextEpisodeInSeason) {
-              setNextEpisode(nextEpisodeInSeason);
-
-              return;
-            }
-
-            // If no next episode in current season, try first episode of next season
-            const firstEpisodeNextSeason = seriesEpisodes.find((m: Media) => {
-              let season = m.season_number;
-              let episode = m.episode_number;
-
-              if (!season || !episode) {
-                const episodeMatch = m.title.match(/[Ss](\d+)[Ee](\d+)/);
-                if (episodeMatch) {
-                  season = parseInt(episodeMatch[1]);
-                  episode = parseInt(episodeMatch[2]);
-                }
-              }
-
-              const isNextSeason = season === currentSeason + 1 && episode === 1;
-
-              return isNextSeason;
-            });
-
-            if (firstEpisodeNextSeason) {
-              setNextEpisode(firstEpisodeNextSeason);
-
-            } else {
-              setNextEpisode(null);
-            }
-          } else {
-
-          }
-        } catch (error) {
-
-          setNextEpisode(null);
-        }
-      } else {
-
+      if (media.type !== 'episode') {
+        setNextEpisode(null);
+        return;
+      }
+      // The server works out the next episode (next season when this one
+      // ends). This used to download the whole library on every episode.
+      try {
+        const r = await fetch(`${getApiUrl()}/api/media/${media.id}/next-episode`);
+        setNextEpisode(r.ok ? ((await r.json()) as Media) : null);
+      } catch {
         setNextEpisode(null);
       }
     };

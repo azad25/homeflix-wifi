@@ -37,6 +37,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/media/tv-shows", handlers.GetTVShows(mediaService))
 		api.GET("/media/genre/:genre", handlers.GetMediaByGenre(mediaService))
 		api.GET("/media/search", handlers.SearchMedia(mediaService, searchService))
+		api.GET("/media/:id/next-episode", handlers.GetNextEpisode(mediaService))
+		api.GET("/media/counts", handlers.GetLibraryCounts(db))
 
 		// Enhanced subtitle and audio track endpoints (must be before /media/:id)
 		api.GET("/media/:id/subtitles", handlers.GetSubtitleTracks(mediaService))
