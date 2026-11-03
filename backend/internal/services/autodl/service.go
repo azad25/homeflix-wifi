@@ -180,14 +180,11 @@ func NewService(db *gorm.DB, t Torrents, notify Notify) *Service {
 	}
 	s.settings = applyProfile(s.settings)
 	s.freeFn = func() (int64, bool) {
-		var best int64
-		found := false
-		for _, si := range storage.GetActiveStorageInfos(db) {
-			if si.Available && (si.PathType == "primary" || si.PathType == "torrent") && int64(si.Free) > best {
-				best, found = int64(si.Free), true
-			}
-		}
-		return best, found
+		// The roomiest of all drives downloads can use (primary, downloads,
+		// external; plugged in and writable). The torrent client writes each
+		// download to a drive that fits it, so one full drive doesn't block.
+		_, free := storage.MostFree(storage.DownloadTargets(db))
+		return free, free > 0
 	}
 	if notify == nil {
 		s.notify = func(string, string, string, int, string) {}
@@ -582,25 +579,38 @@ func (s *Service) process(it *Item, st Settings) bool {
 			rejected[m] = true
 		}
 	}
-	c := Pick(results, *it, st, rejected)
+	// Space: pick the best release that fits on some drive with the reserve
+	// left over (a smaller release beats waiting); wait only if none fits.
+	reserve := int64(st.MinFreeGB * float64(1<<30))
+	free, haveFree := s.freeFn()
+	fitSt := st
+	if haveFree {
+		room := gb(free - reserve)
+		if it.MediaType == "tv" {
+			if fitSt.MaxSeasonGB <= 0 || fitSt.MaxSeasonGB > room {
+				fitSt.MaxSeasonGB = room
+			}
+		} else if fitSt.MaxMovieGB <= 0 || fitSt.MaxMovieGB > room {
+			fitSt.MaxMovieGB = room
+		}
+	}
+	var c *Candidate
+	if !haveFree || free > reserve {
+		c = Pick(results, *it, fitSt, rejected)
+	}
 	if c == nil {
+		if best := Pick(results, *it, st, rejected); best != nil && haveFree {
+			msg := fmt.Sprintf("Waiting for free space: needs %.1f GB plus %.0f GB reserve, the roomiest drive has %.1f GB free", gb(best.Bytes), st.MinFreeGB, gb(free))
+			if !it.SpaceNotified {
+				it.SpaceNotified = true
+				s.notify("space", "Not enough space for "+it.display(), msg+". Add a drive or free space in Settings > Storage.", it.TMDBID, it.MediaType)
+			}
+			s.retryLater(it, msg, 30*time.Minute)
+			return false
+		}
 		it.Attempts++
 		s.retryLater(it, "No release matches your quality settings yet - checking again later", 12*time.Hour)
 		return false
-	}
-
-	// Space: the release plus the reserve must fit on the emptiest drive.
-	if free, ok := s.freeFn(); ok {
-		need := c.Bytes + int64(st.MinFreeGB*float64(1<<30))
-		if free < need {
-			msg := fmt.Sprintf("Waiting for free space: needs %.1f GB plus %.0f GB reserve, %.1f GB free", gb(c.Bytes), st.MinFreeGB, gb(free))
-			if !it.SpaceNotified {
-				it.SpaceNotified = true
-				s.notify("space", "Not enough space for "+it.display(), msg, it.TMDBID, it.MediaType)
-			}
-			s.retryLater(it, msg, time.Hour)
-			return false
-		}
 	}
 
 	info, err := s.torrents.Enqueue(c.Result.MagnetURI, it.display(), it.MediaType, it.TMDBID, c.Quality, c.Bytes)

@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"gorm.io/gorm"
@@ -33,13 +34,12 @@ type StorageInfo struct {
 func GetDiskUsage(path string) (StorageInfo, error) {
 	info := StorageInfo{Path: path}
 
-	// Check if path exists, create if needed for measurement
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(path, 0755); err != nil {
-			info.Available = false
-			info.Error = err.Error()
-			return info, err
-		}
+	// Never create a missing folder: for an unplugged drive that would
+	// measure (and later fill) the system disk instead.
+	if !DriveAvailable(path) {
+		info.Available = false
+		info.Error = "not available (drive unplugged or folder missing)"
+		return info, os.ErrNotExist
 	}
 
 	var stat syscall.Statfs_t
@@ -60,6 +60,71 @@ func GetDiskUsage(path string) (StorageInfo, error) {
 	info.Available = true
 	info.IsLow = IsLowStorage(info)
 	return info, nil
+}
+
+// DriveAvailable: the folder exists and isn't an unplugged drive's empty
+// mount point (an empty /media, /mnt or /run/media folder on the system
+// disk). A folder there that has files is a real folder and counts.
+func DriveAvailable(p string) bool {
+	fi, err := os.Stat(p)
+	if err != nil || !fi.IsDir() {
+		return false
+	}
+	clean := filepath.Clean(p)
+	if !strings.HasPrefix(clean, "/media/") && !strings.HasPrefix(clean, "/mnt/") && !strings.HasPrefix(clean, "/run/media/") {
+		return true
+	}
+	var a, b syscall.Stat_t
+	if syscall.Stat(clean, &a) != nil || syscall.Stat("/", &b) != nil || a.Dev != b.Dev {
+		return true // its own filesystem: mounted
+	}
+	entries, err := os.ReadDir(clean)
+	return err == nil && len(entries) > 0
+}
+
+// Writable: HomeFlix can create files in p.
+func Writable(p string) bool {
+	f, err := os.CreateTemp(p, ".homeflix-write-test-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	f.Close()
+	os.Remove(name)
+	return true
+}
+
+// DownloadTargets: every library folder new downloads may use, highest
+// priority first - primary, download and external drives that are plugged
+// in and writable (cloud mounts only receive offloaded titles).
+func DownloadTargets(db *gorm.DB) []string {
+	var mediaPaths []models.MediaPath
+	if err := db.Where("is_active = ?", true).Order("priority DESC, created_at ASC").Find(&mediaPaths).Error; err != nil {
+		log.Printf("⚠️ Failed to fetch storage paths: %v", err)
+		return nil
+	}
+	var out []string
+	for _, mp := range mediaPaths {
+		if mp.PathType == "cloud" || !DriveAvailable(mp.Path) || !Writable(mp.Path) {
+			continue
+		}
+		out = append(out, mp.Path)
+	}
+	return out
+}
+
+// MostFree returns the target with the most free space.
+func MostFree(paths []string) (path string, free int64) {
+	for _, p := range paths {
+		var st syscall.Statfs_t
+		if syscall.Statfs(p, &st) != nil {
+			continue
+		}
+		if f := int64(st.Bavail) * int64(st.Bsize); f > free {
+			path, free = p, f
+		}
+	}
+	return
 }
 
 // IsLowStorage returns true if storage is low ( >85% used or <5GB free )

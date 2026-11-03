@@ -2,6 +2,7 @@ package torrent
 
 import (
 	"fmt"
+	"homeflix-backend/internal/storage"
 	"io"
 	"log"
 	"os"
@@ -130,23 +131,8 @@ func (tc *TorrentClient) dataDirOf(id string) string {
 	return p
 }
 
-// driveAvailable: the folder exists and isn't an unplugged drive's empty
-// mount point (which would silently be the system disk).
-func driveAvailable(p string) bool {
-	fi, err := os.Stat(p)
-	if err != nil || !fi.IsDir() {
-		return false
-	}
-	clean := filepath.Clean(p)
-	if !strings.HasPrefix(clean, "/media/") && !strings.HasPrefix(clean, "/mnt/") && !strings.HasPrefix(clean, "/run/media/") {
-		return true
-	}
-	if !sameFilesystem(clean, "/") {
-		return true // a real mount
-	}
-	entries, err := os.ReadDir(clean)
-	return err == nil && len(entries) > 0 // a plain folder with content is fine
-}
+// driveAvailable: see storage.DriveAvailable.
+func driveAvailable(p string) bool { return storage.DriveAvailable(p) }
 
 // usableStoragePaths: storage paths in priority order, unplugged drives left out.
 func (tc *TorrentClient) usableStoragePaths() []string {

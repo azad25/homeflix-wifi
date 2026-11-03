@@ -191,7 +191,7 @@ export default function StorageSection() {
             Refresh
           </Button>
         }
-        footer="Turning a folder off hides it from scans without removing anything. Primary and Downloads folders receive new downloads; cloud drives are filled only by moving titles."
+        footer="Turning a folder off hides it from scans without removing anything. New downloads use every plugged-in, writable drive here (primary, downloads and external), highest priority first, moving on to another when one is full. Cloud drives are filled only by moving titles."
       >
         {paths === null ? (
           <EmptyState title="Loading…" />

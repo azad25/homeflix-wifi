@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"homeflix-backend/internal/models"
+	"homeflix-backend/internal/storage"
 	"homeflix-backend/internal/torrent"
 )
 
@@ -279,5 +280,39 @@ func TestFollowQueuesNewSeasons(t *testing.T) {
 	}
 	if len(s.Follows()) != 1 {
 		t.Fatal("follow not stored")
+	}
+}
+
+func TestPicksAReleaseThatFitsInsteadOfWaiting(t *testing.T) {
+	// 26 GB free on the roomiest drive, 20 GB reserve: the 9 GB release
+	// doesn't fit but the 4 GB one does - download that, don't wait.
+	s, ft, _ := newTestService(t, 26*GiB)
+	s.settings.MaxMovieGB = 0
+	ft.results = []torrent.SearchResult{
+		r("Heat.1995.1080p.BluRay", 400, 9*GiB),
+		r("Heat.1995.1080p.WEBRip", 60, 4*GiB),
+	}
+	s.Add(AddRequest{TMDBID: 949, MediaType: "movie", Title: "Heat", Year: 1995})
+	s.Pass(context.Background())
+	it := s.List()[0]
+	if it.Status != StatusDownloading || it.ReleaseSize != 4*GiB {
+		t.Fatalf("expected the release that fits: %+v", it)
+	}
+}
+
+func TestDownloadTargetsSkipUnpluggedAndCloud(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.AutoMigrate(&models.MediaPath{})
+	a, b := t.TempDir(), t.TempDir()
+	db.Create(&models.MediaPath{Path: a, Name: "A", PathType: "primary", Priority: 1, IsActive: true})
+	db.Create(&models.MediaPath{Path: b, Name: "B", PathType: "external", Priority: 5, IsActive: true})
+	db.Create(&models.MediaPath{Path: "/mnt/hfx-unplugged-test", Name: "Gone", PathType: "primary", Priority: 9, IsActive: true})
+	db.Create(&models.MediaPath{Path: t.TempDir(), Name: "Cloud", PathType: "cloud", Priority: 9, IsActive: true})
+	got := storage.DownloadTargets(db)
+	if len(got) != 2 || got[0] != b || got[1] != a {
+		t.Fatalf("targets %v, want [external, primary] by priority", got)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"homeflix-backend/internal/models"
+	"homeflix-backend/internal/storage"
 	"homeflix-backend/internal/torrent"
 
 	"github.com/gin-gonic/gin"
@@ -206,18 +207,10 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 	// Wire dynamic storage provider - auto failover across all active primary paths
 	// No hardcodes: if primary storage fills up, next download automatically uses next best path
 	client.SetStorageProvider(func() []string {
-		var mediaPaths []models.MediaPath
-		if err := db.Where("is_active = ?", true).Order("priority DESC, created_at ASC").Find(&mediaPaths).Error; err != nil {
-			log.Printf("⚠️ Failed to fetch storage paths for failover: %v", err)
-			return nil
-		}
-		var paths []string
-		for _, mp := range mediaPaths {
-			// Use primary and torrent paths for storage - external is read-only
-			if mp.PathType == "primary" || mp.PathType == "torrent" {
-				paths = append(paths, mp.Path)
-			}
-		}
+		// Every plugged-in, writable library drive (primary, downloads and
+		// external), highest priority first: when one is full the next
+		// download goes to another automatically.
+		paths := storage.DownloadTargets(db)
 		// Fallback to single downloadPath if no media paths
 		if len(paths) == 0 {
 			paths = []string{config.DownloadPath}
