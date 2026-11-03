@@ -26,6 +26,7 @@ import AudioSubtitlesPanel from './player/AudioSubtitlesPanel';
 import { PlayerIconButton, SkipIcon, SpeedControl } from './player/PlayerControls';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getApiUrl } from '@/lib/api';
+import BrandIntro, { BRAND_INTRO_MS } from '@/components/brand/BrandIntro';
 import { attachStreamSource, AttachedStream, fetchStreamInfo } from '@/lib/streamSource';
 import RedLoader from './RedLoader';
 import HomeflixCastControl, { HomeflixCastRemote } from './cast/HomeflixCastControl';
@@ -1195,6 +1196,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     };
   }, [isOpen]);
 
+  // When the ident started (for its minimum display time)
+  const introStartRef = useRef(Date.now());
+  useEffect(() => {
+    if (showIntroAnimation) introStartRef.current = Date.now();
+  }, [showIntroAnimation]);
+
   // Hide intro animation after it completes AND video is actually playing
   useEffect(() => {
     if (showIntroAnimation && isOpen) {
@@ -1208,9 +1215,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       // Wait for video to actually start playing before hiding intro
       if (isPlaying) {
         // Add a minimum display time for the animation
+        // Let the ident finish, but never hold the film back longer than that.
+        const shown = Date.now() - introStartRef.current;
         const timer = setTimeout(() => {
           setShowIntroAnimation(false);
-        }, 500); // Small delay after video starts playing
+        }, Math.max(500, BRAND_INTRO_MS - shown));
 
         return () => clearTimeout(timer);
       }
@@ -3944,66 +3953,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 transition={{ duration: 0.5 }}
                 className="absolute inset-0 z-[60] bg-black flex items-center justify-center homeflix-intro-container"
               >
-                {/* Animated Bars Container */}
-                <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-                  {/* Multiple animated bars moving towards center */}
-                  {[...Array(7)].map((_, index) => (
-                    <div
-                      key={index}
-                      className={`homeflix-bar homeflix-bar-${index + 1} absolute h-1 rounded-full`}
-                      style={{
-                        width: `${60 + index * 15}px`,
-                        background: `linear-gradient(90deg, transparent, #E50914 40%, #E50914 60%, transparent)`,
-                        top: `${35 + index * 5}%`,
-                        left: 0,
-                        right: 0,
-                        margin: 'auto',
-                        opacity: 0.9 - index * 0.1,
-                      }}
-                    />
-                  ))}
-                </div>
-
-                {/* HOMEFLIX Text */}
-                <div className="relative z-10 homeflix-text flex flex-col items-center">
-                  <h1
-                    className="text-6xl md:text-8xl lg:text-9xl font-bold tracking-widest"
-                    style={{
-                      fontFamily: "'Bebas Neue', 'Impact', sans-serif",
-                      color: '#E50914',
-                      letterSpacing: '0.2em',
-                    }}
-                  >
-                    HOMEFLIX
-                  </h1>
-                </div>
-
-                {/* Additional decorative bars behind text */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div
-                    className="absolute w-full h-[2px] bg-gradient-to-r from-transparent via-red-600/50 to-transparent"
-                    style={{
-                      animation: 'homeflix-bar-slide 2s ease-in-out forwards',
-                      animationDelay: '0.3s',
-                    }}
-                  />
-                  <div
-                    className="absolute w-full h-[1px] bg-gradient-to-r from-transparent via-red-500/30 to-transparent"
-                    style={{
-                      animation: 'homeflix-bar-slide 2s ease-in-out forwards',
-                      animationDelay: '0.5s',
-                      top: '45%',
-                    }}
-                  />
-                  <div
-                    className="absolute w-full h-[1px] bg-gradient-to-r from-transparent via-red-500/30 to-transparent"
-                    style={{
-                      animation: 'homeflix-bar-slide 2s ease-in-out forwards',
-                      animationDelay: '0.5s',
-                      bottom: '45%',
-                    }}
-                  />
-                </div>
+                {/* HomeFlix opening ident */}
+                <BrandIntro />
 
                 {/* Close button (the intro can be closed too, not just skipped) */}
                 <button
