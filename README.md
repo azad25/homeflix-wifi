@@ -4,7 +4,7 @@ Your own streaming service for the movies and shows on your drives. HomeFlix
 organises your library, streams it to any browser and Android TV on your
 network, and can download, subtitle and preview titles for you.
 
-![HomeFlix](homeflix.png)
+![HomeFlix on the web and on a phone](screenshots/v5.5/hero.jpg)
 
 ▶️ [Demo on YouTube](https://www.youtube.com/watch?v=_IIKlyhlE_4) ·
 📺 [HomeFlix TV app](https://github.com/azad25/homeflix-tv-app) ·
@@ -37,10 +37,17 @@ network, and can download, subtitle and preview titles for you.
 - **Self-updating**: update the server and publish TV app builds from
   Settings.
 
+## Screenshots
+
 | | |
 |---|---|
-| ![Home](screenshots/preview_home.png) | ![Providers](screenshots/preview_provider.png) |
-| ![Widgets](screenshots/preview_widgets.png) | ![Notifications](screenshots/preview_notification.png) |
+| ![What's New: live mosaic of new arrivals, trends and downloads](screenshots/v5.5/whats-new.jpg) | ![For You: news about the people you watch, beside server activity](screenshots/v5.5/for-you.jpg) |
+| ![Home: rows learned from what you watch](screenshots/v5.5/home-rows.jpg) | ![Movies: TMDB rows; hovering a card plays its trailer](screenshots/v5.5/movies.jpg) |
+| ![Title page](screenshots/v5.5/movie.jpg) | ![Settings, Storage: drives, priorities and space](screenshots/v5.5/storage.jpg) |
+
+![HomeFlix on phones](screenshots/v5.5/mobile.jpg)
+
+<sub>Mockups use made-up titles and artwork.</sub>
 
 ## Install
 
