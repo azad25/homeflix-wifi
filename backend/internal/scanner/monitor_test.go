@@ -94,3 +94,22 @@ func TestMonitorUsesScannerCountersWithoutTracker(t *testing.T) {
 		t.Fatalf("history %+v", h[0])
 	}
 }
+
+func TestMonitorKeepsTrackerCountsAfterDetach(t *testing.T) {
+	t.Setenv("HOMEFLIX_SCANNER_DIR", t.TempDir())
+	m := newMonitor()
+	m.SetStatsSource(func() ScanStats { return ScanStats{} }) // scanner counters stay 0
+	m.Run("Full scan", func() error {
+		p := &ProgressTracker{}
+		m.attach(p)
+		p.SetTotalFiles(5)
+		for i := 0; i < 5; i++ {
+			p.IncrementProcessed()
+		}
+		m.detach(p) // ProgressTracker.Stop runs before the scan returns
+		return nil
+	})
+	if h := m.History()[0]; h.Processed != 5 || h.Total != 5 {
+		t.Fatalf("final counters lost: %+v", h)
+	}
+}

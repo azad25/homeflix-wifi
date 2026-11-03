@@ -66,6 +66,7 @@ type monitor struct {
 	cur      *RunInfo
 	depth    int // nested entry points (a sync that runs a scan) share one run
 	trackers []*ProgressTracker
+	tracked  bool // a tracker drove this run: keep its final counters
 	stats    func() ScanStats
 	base     ScanStats
 	history  []RunInfo
@@ -128,7 +129,7 @@ func (m *monitor) begin(kind string) {
 	if m.stats != nil {
 		m.base = m.stats()
 	}
-	m.trackers = nil
+	m.trackers, m.tracked = nil, false
 	run := *m.cur
 	m.mu.Unlock()
 	m.emit("info", "▶ "+kind+" started")
@@ -180,11 +181,13 @@ func (m *monitor) saveLocked() {
 func (m *monitor) attach(p *ProgressTracker) {
 	m.mu.Lock()
 	m.trackers = append(m.trackers, p)
+	m.tracked = true
 	m.mu.Unlock()
 }
 
 func (m *monitor) detach(p *ProgressTracker) {
 	m.mu.Lock()
+	m.refreshLocked() // capture its final numbers before it goes
 	for i, t := range m.trackers {
 		if t == p {
 			m.trackers = append(m.trackers[:i], m.trackers[i+1:]...)
@@ -208,7 +211,7 @@ func (m *monitor) refreshLocked() {
 		r.Phase, r.Operation = p.currentPhase, p.currentOperation
 		r.Total, r.Processed, r.Errors, r.Skipped, r.Workers = p.totalFiles, p.processedFiles, p.errorFiles, p.skippedFiles, p.activeGoroutines
 		p.mutex.RUnlock()
-	} else if m.stats != nil {
+	} else if m.stats != nil && !m.tracked {
 		s := m.stats()
 		r.Total = s.TotalFiles
 		r.Processed = s.ProcessedFiles - m.base.ProcessedFiles
