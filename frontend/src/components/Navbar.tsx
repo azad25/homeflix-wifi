@@ -3,7 +3,7 @@
 import BrandLogo from "@/components/brand/BrandLogo";
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Bell, User, Menu, X, Film, Tv, Music, List, Compass, Settings, HelpCircle, LogOut, Info } from "lucide-react";
+import { Search, Bell, User, Menu, X, Film, Tv, Music, List, Compass, Settings, HelpCircle, Info } from "lucide-react";
 import { usePathname } from "next/navigation";
 import NavigationLink from "./NavigationLink";
 import { useNavigate } from "@/hooks/useNavigate";
@@ -602,97 +602,88 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                 onClick={() => setIsSidebarOpen(false)}
               />
 
-              {/* Sidebar Panel sliding from right edge */}
+              {/* Sidebar panel: floating glass sheet from the right edge */}
               <motion.div
-                initial={{ x: "100%" }}
+                initial={{ x: "105%" }}
                 animate={{ x: 0 }}
-                exit={{ x: "100%" }}
-                transition={{ type: "tween", duration: 0.3, ease: "easeOut" }}
-                className="fixed inset-y-0 right-0 w-80 max-w-[85vw] bg-black/80 backdrop-blur-2xl border-l border-white/10 z-[60] shadow-[-10px_0_30px_rgba(0,0,0,0.5)] flex flex-col h-screen overflow-hidden"
+                exit={{ x: "105%" }}
+                transition={{ type: "spring", stiffness: 380, damping: 38 }}
+                className="fixed bottom-3 right-3 top-3 z-[60] flex w-[300px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[28px] bg-[#141414]/85 shadow-[0_30px_80px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-2xl"
               >
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-white/10 bg-gradient-to-b from-black/50 to-transparent">
+                <div className="flex items-center justify-between px-5 pb-3 pt-5">
                   <BrandLogo size="md" />
                   <button
                     onClick={() => setIsSidebarOpen(false)}
-                    className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-all duration-300 hover:rotate-90"
+                    aria-label="Close menu"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.08] text-white/70 transition hover:bg-white/[0.16] hover:text-white"
                   >
-                    <X className="w-6 h-6" />
+                    <X className="h-[18px] w-[18px]" />
                   </button>
                 </div>
 
-                {/* Scrollable Content */}
-                <div className="flex-1 overflow-y-auto py-6 px-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-
-                  {/* Dynamic Links Section */}
-                  <div className="mb-8">
-                    <h3 className="px-3 mb-3 text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
-                      <Compass className="w-4 h-4" /> Browse
-                    </h3>
-                    <div className="flex flex-col gap-1">
-                      {[...navItems, ...dynamicPages.map(p => ({ name: p.title, href: `/${p.slug}` }))].map((item) => {
-                        const isActive = pathname === item.href;
-                        return (
-                          <NavigationLink
-                            key={item.name}
-                            href={item.href}
-                            target={item.href === "/now-playing" ? "_blank" : ""}
-                            className={`flex items-center w-full px-4 py-3 rounded-xl transition-all duration-300 group ${isActive
-                              ? "bg-white/[0.1] text-white font-semibold"
-                              : "text-gray-300 hover:text-white hover:bg-white/5"
-                              }`}
-                            onClick={() => setIsSidebarOpen(false)}
-                          >
-                            <span className="group-hover:translate-x-1 transition-transform">{item.name}</span>
-                          </NavigationLink>
-                        );
-                      })}
-                    </div>
+                {/* Scrollable content */}
+                <div className="flex-1 overflow-y-auto px-3 pb-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <p className="px-3 pb-1.5 pt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/35">Browse</p>
+                  <div className="flex flex-col gap-0.5">
+                    {[...navItems, ...dynamicPages.map(p => ({ name: p.title, href: `/${p.slug}` }))].map((item) => {
+                      const isActive = pathname === item.href;
+                      return (
+                        <NavigationLink
+                          key={item.name}
+                          href={item.href}
+                          target={item.href === "/now-playing" ? "_blank" : ""}
+                          className={`flex w-full items-center rounded-2xl px-3.5 py-2.5 text-[15px] transition-colors ${isActive
+                            ? "bg-white text-black font-semibold"
+                            : "text-white/75 hover:bg-white/[0.08] hover:text-white"
+                            }`}
+                          onClick={() => setIsSidebarOpen(false)}
+                        >
+                          {item.name}
+                        </NavigationLink>
+                      );
+                    })}
                     {isInitialLoad && dynamicPages.length === 0 && (
-                      <div className="px-4 py-3">
-                        <div className="w-3/4 h-5 bg-white/10 animate-pulse rounded-full"></div>
+                      <div className="px-3.5 py-2.5">
+                        <div className="h-4 w-2/3 animate-pulse rounded-full bg-white/10" />
                       </div>
                     )}
                   </div>
 
-                  {/* Account & Settings Section */}
-                  <div className="mb-8">
-                    <h3 className="px-3 mb-3 text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
-                      <Settings className="w-4 h-4" /> Account & Settings
-                    </h3>
-                    <div className="flex flex-col gap-1">
-                      {[
-                        { name: 'Music', icon: Music, href: '/music' },
-                        { name: 'My List', icon: List, href: '/my-list' },
-                        { name: 'Providers', icon: Tv, href: '/providers' },
-                        { name: 'Trailers', icon: Film, href: '/trailers' },
-                        { name: 'Settings', icon: Settings, href: '/settings' },
-                        { name: 'Library', icon: List, href: '/browse' },
-                        { name: 'About', icon: Info, href: '/about' }
-                      ].map((item) => (
+                  <p className="px-3 pb-1.5 pt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/35">Library & More</p>
+                  <div className="flex flex-col gap-0.5">
+                    {[
+                      { name: 'My List', icon: List, href: '/my-list' },
+                      { name: 'Library', icon: Compass, href: '/browse' },
+                      { name: 'Trailers', icon: Film, href: '/trailers' },
+                      { name: 'Providers', icon: Tv, href: '/providers' },
+                      { name: 'Music', icon: Music, href: '/music' },
+                      { name: 'Settings', icon: Settings, href: '/settings' },
+                      { name: 'About', icon: Info, href: '/about' }
+                    ].map((item) => {
+                      const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+                      return (
                         <a
                           key={item.name}
                           href={item.href}
-                          className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-all duration-300 group"
+                          onClick={() => setIsSidebarOpen(false)}
+                          className={`flex w-full items-center gap-3 rounded-2xl px-3.5 py-2.5 text-[15px] transition-colors ${isActive
+                            ? "bg-white text-black font-semibold"
+                            : "text-white/75 hover:bg-white/[0.08] hover:text-white"
+                            }`}
                         >
-                          <item.icon className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity" />
-                          <span className="group-hover:translate-x-1 transition-transform font-medium">{item.name}</span>
+                          <item.icon className="h-[18px] w-[18px] opacity-80" />
+                          {item.name}
                         </a>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Footer / Sign Out */}
-                <div className="p-6 border-t border-white/10 bg-black/40">
-                  <a href="/about" className="block mb-4 text-center text-xs text-white/40 hover:text-white/70 transition-colors">
-                    HomeFlix · developed by <span className="text-white/70 font-semibold">Ferdous Azad</span>
-                  </a>
-                  <a href="#" className="flex items-center justify-center gap-3 w-full px-4 py-3 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-white transition-all duration-300 font-semibold shadow-lg">
-                    <LogOut className="w-5 h-5" />
-                    <span>Sign Out</span>
-                  </a>
-                </div>
+                {/* Footer */}
+                <a href="/about" className="border-t border-white/[0.07] px-5 py-4 text-center text-[12px] text-white/35 transition-colors hover:text-white/60">
+                  HomeFlix · developed by <span className="font-semibold text-white/60">Ferdous Azad</span>
+                </a>
               </motion.div>
             </>
           )}
