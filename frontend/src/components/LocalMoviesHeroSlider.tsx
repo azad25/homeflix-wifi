@@ -56,12 +56,15 @@ interface LocalMoviesHeroSliderProps {
     onPlay: (media: Media) => void;
     onInfo: (media: Media) => void;
     maxMovies?: number;
+    /** Pause the trailer (e.g. while the full-screen player is open over the hero). */
+    paused?: boolean;
 }
 
 const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
     onPlay,
     onInfo,
     maxMovies = 10,
+    paused = false,
 }) => {
     const [movies, setMovies] = useState<Media[]>([]);
     const [loading, setLoading] = useState(true);
@@ -74,6 +77,7 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
     // Read at player creation without making mute toggles rebuild the player
     // (that restarted the trailer and briefly ran two players).
     const mutedRef = useRef(false);
+    const pausedRef = useRef(paused);
     const endCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const destroyPlayer = useCallback(() => {
         if (endCheckRef.current) clearInterval(endCheckRef.current);
@@ -263,7 +267,9 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                             event.target.unMute();
                         }
                         event.target.seekTo(10, true); // Explicitly seek to 10s with allowSeekAhead
-                        event.target.playVideo();
+                        // Never start behind the full-screen player
+                        if (pausedRef.current) event.target.pauseVideo();
+                        else event.target.playVideo();
 
                         // Set up interval to end video 3 seconds early
                         if (endCheckRef.current) clearInterval(endCheckRef.current);
@@ -294,6 +300,20 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
             clearTimeout(timer);
         };
     }, [ytReady, activeSlideIndex, movies, goToNextSlide, destroyPlayer]);
+
+    // The hero sits under the full-screen player: pause its trailer while a
+    // title plays, otherwise both soundtracks run at once (one hidden).
+    useEffect(() => {
+        pausedRef.current = paused;
+        const p = playerRef.current;
+        if (!p) return;
+        try {
+            if (paused) p.pauseVideo?.();
+            else p.playVideo?.();
+        } catch {
+            /* player not ready yet; onReady reads pausedRef */
+        }
+    }, [paused]);
 
     // Handle mute toggle
     useEffect(() => {

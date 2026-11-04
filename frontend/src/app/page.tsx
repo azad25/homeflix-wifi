@@ -114,7 +114,7 @@ export default function Home() {
       <Navbar onSearch={handleSearch} />
 
       {/* HomeflixHero Section - Enhanced hero with preview clips and YouTube trailers */}
-      <MemoizedHomeflixHero onPlay={handlePlay} onInfo={handleInfo} maxMovies={10} />
+      <MemoizedHomeflixHero onPlay={handlePlay} onInfo={handleInfo} maxMovies={10} paused={isPlayerOpen} />
 
       {/* Personalised rows learned from watch history */}
       <ErrorBoundary>

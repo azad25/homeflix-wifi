@@ -131,6 +131,9 @@ function installAudioFocus(YT: any) {
         p.__hfxWrapped = true;
         p.unMute = () => {
           silenceOthers(p);
+          // While the full player plays, silenceOthers() has just muted this
+          // trailer: don't unmute it straight back behind the player.
+          if (mainPlaying()) return;
           autoMuted.delete(p);
           return unMute();
         };
