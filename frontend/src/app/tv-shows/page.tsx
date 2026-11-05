@@ -38,6 +38,8 @@ interface Series {
   trailer_url?: string;
   logo_path?: string;
   tmdb_id?: number;
+  /** Latest episode with a file; its preview clip is the hero background. */
+  preview_episode_id?: number;
   created_at?: string;
 }
 
@@ -150,6 +152,8 @@ export default function TVShowsPage() {
         logo: logoOf(s),
         meta: [s.year, ...(s.genre_names || []).slice(0, 2), seasonsLabel(s), s.certification],
         trailerKey: key,
+        // ?wait lets the server finish a clip that's still being made.
+        previewClip: s.preview_episode_id ? `${api()}/api/preview-clips/${s.preview_episode_id}?wait=10` : null,
         resolveTrailer: !key && s.tmdb_id ? () => fetchTrailerKey({ id: s.tmdb_id, media_type: "tv" }) : undefined,
         ...({ _series: s } as any),
       };

@@ -560,7 +560,15 @@ func (s *MediaService) GetSeries() ([]models.Series, error) {
 func (s *MediaService) GetSeriesByID(id uint) (*models.Series, error) {
 	var series models.Series
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
-		return db.Preload("Episodes").Preload("Episodes.Subtitles").Preload("Genres").First(&series, id).Error
+		if err := db.Preload("Episodes").Preload("Episodes.Subtitles").Preload("Genres").First(&series, id).Error; err != nil {
+			return err
+		}
+		one := []models.Series{series}
+		if err := attachPreviewEpisodes(db, one); err != nil {
+			return err
+		}
+		series = one[0]
+		return nil
 	})
 	return &series, err
 }
@@ -1172,9 +1180,51 @@ func (s *MediaService) GetAllSeries() ([]models.Series, error) {
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
 		// Episodes are never serialised (json:"-") and no caller reads them;
 		// preloading them loaded every episode in the library per request.
-		return db.Find(&series).Error
+		if err := db.Find(&series).Error; err != nil {
+			return err
+		}
+		return attachPreviewEpisodes(db, series)
 	})
 	return series, err
+}
+
+// attachPreviewEpisodes sets each show's PreviewEpisodeID to its latest
+// episode (highest season, then episode) that has a video file. One light
+// query over the episode columns it needs, not a preload of every episode.
+func attachPreviewEpisodes(db *gorm.DB, series []models.Series) error {
+	if len(series) == 0 {
+		return nil
+	}
+	ids := make([]uint, len(series))
+	for i := range series {
+		ids[i] = series[i].ID
+	}
+	type epRow struct {
+		ID       uint
+		SeriesID uint
+		Season   int
+		Episode  int
+	}
+	var rows []epRow
+	if err := db.Model(&models.Media{}).
+		Select("id, series_id, COALESCE(season_number, season, 0) AS season, COALESCE(episode_number, episode, 0) AS episode").
+		Where("type = ? AND series_id IN ? AND file_path <> ''", "episode", ids).
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+	best := make(map[uint]epRow, len(series))
+	for _, r := range rows {
+		b, ok := best[r.SeriesID]
+		if !ok || r.Season > b.Season || (r.Season == b.Season && (r.Episode > b.Episode || (r.Episode == b.Episode && r.ID > b.ID))) {
+			best[r.SeriesID] = r
+		}
+	}
+	for i := range series {
+		if b, ok := best[series[i].ID]; ok {
+			series[i].PreviewEpisodeID = b.ID
+		}
+	}
+	return nil
 }
 
 // GetGenreIDsByNames returns the IDs of genres matching the given names, creating any that don't exist

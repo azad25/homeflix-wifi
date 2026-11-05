@@ -19,6 +19,9 @@ export interface TVHeroSlide {
   /** YouTube key, or a resolver called lazily when the slide becomes active. */
   trailerKey?: string | null;
   resolveTrailer?: () => Promise<string | null>;
+  /** Local preview clip URL (e.g. a show's latest episode). Preferred over the
+   *  YouTube trailer; the trailer is used if the clip can't play. */
+  previewClip?: string | null;
 }
 
 interface TVHeroProps {
@@ -61,6 +64,8 @@ export default function TVHero({
   const [index, setIndex] = useState(0);
   const [muted, setMuted] = useState(true);
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
+  const [clip, setClip] = useState<string | null>(null);
+  const clipRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false); // hover/focus pauses rotation
 
@@ -98,11 +103,16 @@ export default function TVHero({
   // Resolve the active slide's trailer after a short dwell.
   useEffect(() => {
     setTrailerKey(null);
+    setClip(null);
     setPlaying(false);
     if (!previews || !getPreferences().autoplayPreviews || !slide) return;
     if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     let cancelled = false;
     const t = setTimeout(async () => {
+      if (slide.previewClip) {
+        if (!cancelled) setClip(slide.previewClip);
+        return;
+      }
       const key = slide.trailerKey ?? (slide.resolveTrailer ? await slide.resolveTrailer() : null);
       if (!cancelled && key) setTrailerKey(key);
     }, PREVIEW_DELAY_MS);
@@ -112,6 +122,16 @@ export default function TVHero({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slide?.id, previews]);
+
+  // The clip failed (missing file, still generating...): use the trailer.
+  const clipFailed = async () => {
+    const s = slide;
+    setClip(null);
+    setPlaying(false);
+    if (!s) return;
+    const key = s.trailerKey ?? (s.resolveTrailer ? await s.resolveTrailer() : null);
+    if (key && slidesRef.current[index]?.id === s.id) setTrailerKey(key);
+  };
 
   const loadKey = (key: string | null) => {
     const p = playerRef.current;
@@ -176,6 +196,7 @@ export default function TVHero({
   }, [trailerKey]);
 
   useEffect(() => {
+    if (clipRef.current) clipRef.current.muted = muted;
     const p = playerRef.current;
     if (!p || !readyRef.current) return;
     if (muted) p.mute();
@@ -184,6 +205,11 @@ export default function TVHero({
 
   useEffect(() => {
     const onVis = () => {
+      const v = clipRef.current;
+      if (v) {
+        if (document.hidden) v.pause();
+        else v.play().catch(() => undefined);
+      }
       const p = playerRef.current;
       if (!p || !readyRef.current) return;
       if (document.hidden) p.pauseVideo();
@@ -270,11 +296,34 @@ export default function TVHero({
         </motion.div>
       </AnimatePresence>
 
+      {clip && (
+        <video
+          ref={clipRef}
+          key={clip}
+          src={clip}
+          aria-hidden="true"
+          autoPlay
+          muted={muted}
+          playsInline
+          preload="auto"
+          onPlaying={() => setPlaying(true)}
+          onEnded={() => {
+            setPlaying(false);
+            setClip(null);
+            if (slidesRef.current.length > 1) setIndex((i) => (i + 1) % slidesRef.current.length);
+          }}
+          onError={clipFailed}
+          className={`pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ${
+            playing ? "opacity-100" : "opacity-0"
+          }`}
+        />
+      )}
+
       <div
         ref={hostRef}
         aria-hidden="true"
         className={`pointer-events-none absolute inset-0 overflow-hidden transition-opacity duration-1000 ${
-          playing ? "opacity-100" : "opacity-0"
+          playing && !clip ? "opacity-100" : "opacity-0"
         }`}
       >
         <div
@@ -333,7 +382,7 @@ export default function TVHero({
                   {secondaryLabel}
                 </button>
               )}
-              {trailerKey && (
+              {(trailerKey || clip) && (
                 <button
                   type="button"
                   className="tv-btn tv-btn-secondary tv-btn-icon"

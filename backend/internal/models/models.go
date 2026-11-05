@@ -186,6 +186,10 @@ type Series struct {
 	TMDBTrailerURL  string `json:"tmdb_trailer_url"`  // TMDB YouTube trailer URL
 	LogoPath        string `json:"logo_path"`         // Local path to TV series logo image
 	TMDBID          int    `json:"tmdb_id"`           // TMDB TV series ID for reference
+
+	// Latest episode with a video file: clients play its preview clip
+	// (/api/preview-clips/<id>) as the show's background video. Not stored.
+	PreviewEpisodeID uint `json:"preview_episode_id,omitempty" gorm:"-"`
 }
 
 // AfterFind hook to populate GenreNames from Genres relationship
