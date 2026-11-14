@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"homeflix-backend/internal/mediafiles"
 	"homeflix-backend/internal/services/governor"
 	"log"
 	"math/rand"
@@ -26,7 +27,6 @@ import (
 	"homeflix-backend/internal/services"
 	"homeflix-backend/internal/utils"
 
-	"github.com/h2non/filetype"
 )
 
 type MediaScanner struct {
@@ -2138,37 +2138,9 @@ func (s *MediaScanner) logScanResults() {
 }
 
 func (s *MediaScanner) isVideoFile(path string) bool {
-	// First check by extension for common video formats
-	ext := strings.ToLower(filepath.Ext(path))
-	videoExts := []string{".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpg", ".mpeg", ".3gp", ".ogv"}
-
-	for _, videoExt := range videoExts {
-		if ext == videoExt {
-			return true
-		}
-	}
-
-	// Fallback to MIME type detection for unknown extensions
-	file, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer file.Close()
-
-	// Read first 512 bytes to determine file type
-	buffer := make([]byte, 512)
-	_, err = file.Read(buffer)
-	if err != nil {
-		return false
-	}
-
-	kind, err := filetype.Match(buffer)
-	if err != nil {
-		return false
-	}
-
-	// Check if it's a video MIME type
-	return strings.HasPrefix(kind.MIME.Value, "video/")
+	// Extension only. (Sniffing the content of unknown files used to let
+	// other kinds of files in; processVideoFile applies the full rule.)
+	return s.isVideoFileByExtension(strings.ToLower(filepath.Ext(path)))
 }
 
 func (s *MediaScanner) isSubtitleFile(path string) bool {
@@ -2202,6 +2174,14 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 			log.Printf("🚨 Recovered from panic processing video file %s: %v", path, r)
 		}
 	}()
+
+	// Only movies and episodes enter the library (same rule as the library
+	// cleanup): not source code sharing a video extension (.ts), samples,
+	// trailers, extras folders, tiny clips or HomeFlix's own files.
+	if why := mediafiles.Reason(s.libraryRoots(), path, info.Size(), mediafiles.OpenFile); why != "" {
+		s.IncrementSkippedFiles()
+		return nil
+	}
 
 	// Skip files that are too large or problematic
 	if info.Size() > 100*1024*1024*1024 {
@@ -7504,4 +7484,13 @@ func tidyMovieTitle(t string) string {
 		return t
 	}
 	return out
+}
+
+// libraryRoots: the folders the library is scanned from.
+func (s *MediaScanner) libraryRoots() []string {
+	roots := append([]string{}, s.GetMediaPaths()...)
+	if p := s.GetMediaPath(); p != "" {
+		roots = append(roots, p)
+	}
+	return roots
 }

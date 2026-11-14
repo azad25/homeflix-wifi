@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"homeflix-backend/internal/api/handlers"
 	"homeflix-backend/internal/services/governor"
+	"homeflix-backend/internal/services/libclean"
 	"homeflix-backend/internal/services/libgen"
 	"io"
 	"log"
@@ -46,6 +47,15 @@ func main() {
 	// Library generation: caches derived from the library (catalog,
 	// recommendations) rebuild only after a library write.
 	libgen.Watch(db)
+
+	// Library cleanup: entries that aren't movies or episodes (source code
+	// with a .ts extension, samples, extras, clips) are removed shortly after
+	// startup and after every scan. Database rows only; files are untouched.
+	scanner.Mon.OnRunEnd(func() { libclean.Run(db) })
+	go func() {
+		time.Sleep(20 * time.Second)
+		libclean.Run(db)
+	}()
 
 	// Auto-migrate music tables
 	if err := db.AutoMigrate(&music.Track{}, &music.Playlist{}, &music.PlaylistTrack{}, &music.UserLike{}, &music.RecentlyPlayed{}, &music.SearchHistory{}); err != nil {

@@ -76,6 +76,14 @@ type monitor struct {
 	file     string
 	partial  []byte
 	subs     map[chan LiveMsg]struct{}
+	onEnd    func() // after every finished run (library cleanup)
+}
+
+// OnRunEnd sets a function called (in the background) after every scan run.
+func (m *monitor) OnRunEnd(f func()) {
+	m.mu.Lock()
+	m.onEnd = f
+	m.mu.Unlock()
 }
 
 const (
@@ -159,7 +167,11 @@ func (m *monitor) end(err error) {
 		m.history = m.history[:maxHistory]
 	}
 	m.saveLocked()
+	onEnd := m.onEnd
 	m.mu.Unlock()
+	if onEnd != nil {
+		go onEnd()
+	}
 	if err != nil {
 		m.emit("error", "■ "+r.Kind+" failed: "+err.Error())
 	} else {
